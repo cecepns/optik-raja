@@ -1,5 +1,5 @@
 import React from "react";
-import { Menu, ShoppingCart } from "lucide-react";
+import { Menu, ShoppingCart, Glasses, Wrench } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
 
@@ -24,15 +24,37 @@ export default function Navbar() {
           </span>
         </div>
 
-        {/* Right: Quick POS button & Active User */}
+        {/* Right: Quick Action button & Active User */}
         <div className="flex items-center gap-3 sm:gap-4">
-          <Link
-            to="/pos"
-            className="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-xs transition-colors"
-          >
-            <ShoppingCart className="w-4 h-4" />
-            <span>Kasir POS</span>
-          </Link>
+          {["Owner", "Kasir"].includes(currentUser?.role) && (
+            <Link
+              to="/pos"
+              className="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-xs transition-colors"
+            >
+              <ShoppingCart className="w-4 h-4" />
+              <span>Kasir POS</span>
+            </Link>
+          )}
+
+          {currentUser?.role === "Refraksionis Optisien" && (
+            <Link
+              to="/prescriptions"
+              className="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-xs transition-colors"
+            >
+              <Glasses className="w-4 h-4" />
+              <span>Rekam Medis</span>
+            </Link>
+          )}
+
+          {currentUser?.role === "Teknisi Lab" && (
+            <Link
+              to="/lab"
+              className="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-xs transition-colors"
+            >
+              <Wrench className="w-4 h-4" />
+              <span>Status Lab</span>
+            </Link>
+          )}
 
           <div className="flex items-center gap-2.5 pl-3 border-l border-slate-200">
             <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-extrabold text-sm border border-blue-200 shadow-2xs">

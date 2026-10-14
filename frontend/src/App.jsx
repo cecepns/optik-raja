@@ -19,6 +19,15 @@ import ExpensesPage from "@/pages/ExpensesPage";
 import ReportsPage from "@/pages/ReportsPage";
 import SettingsPage from "@/pages/SettingsPage";
 
+import { useApp } from "@/context/AppContext";
+import { getDefaultRouteForRole } from "@/utils/roles";
+
+function RootRedirect() {
+  const { currentUser } = useApp();
+  const target = getDefaultRouteForRole(currentUser?.role);
+  return <Navigate to={target} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -63,9 +72,7 @@ export default function App() {
             path="/"
             element={
               <ProtectedRoute>
-                <AppLayout>
-                  <Navigate to="/pos" replace />
-                </AppLayout>
+                <RootRedirect />
               </ProtectedRoute>
             }
           />
@@ -181,7 +188,14 @@ export default function App() {
           />
 
           {/* Fallback */}
-          <Route path="*" element={<Navigate to="/pos" replace />} />
+          <Route
+            path="*"
+            element={
+              <ProtectedRoute>
+                <RootRedirect />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </AppProvider>
     </BrowserRouter>

@@ -4,6 +4,8 @@ import { Lock, User, Eye, EyeOff, LogIn, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import toast from "react-hot-toast";
 
+import { getDefaultRouteForRole } from "@/utils/roles";
+
 export default function LoginPage() {
   const { login, isAuthenticated, currentUser, settings } = useApp();
   const navigate = useNavigate();
@@ -15,11 +17,16 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
 
-  // If already authenticated, redirect to destination
+  // If already authenticated, redirect to role destination
   useEffect(() => {
     if (isAuthenticated && currentUser) {
-      const from = location.state?.from?.pathname || "/pos";
-      navigate(from, { replace: true });
+      const defaultRoute = getDefaultRouteForRole(currentUser.role);
+      const from = location.state?.from?.pathname;
+      const destination =
+        from && from !== "/" && from !== "/login" && from !== "/pos"
+          ? from
+          : defaultRoute;
+      navigate(destination, { replace: true });
     }
   }, [isAuthenticated, currentUser, navigate, location]);
 
@@ -32,9 +39,14 @@ export default function LoginPage() {
 
     try {
       setIsLoading(true);
-      await login(username.trim(), password);
-      const from = location.state?.from?.pathname || "/pos";
-      navigate(from, { replace: true });
+      const user = await login(username.trim(), password);
+      const defaultRoute = getDefaultRouteForRole(user?.role);
+      const from = location.state?.from?.pathname;
+      const destination =
+        from && from !== "/" && from !== "/login" && from !== "/pos"
+          ? from
+          : defaultRoute;
+      navigate(destination, { replace: true });
     } catch (err) {
       toast.error(err.message || "Gagal masuk ke sistem");
     } finally {

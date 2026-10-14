@@ -6,22 +6,38 @@ import {
   Eye,
   Edit2,
   Trash2,
-  Printer,
   Calendar,
-  User,
-  Activity,
+  Clock,
+  RotateCcw,
+  FileSpreadsheet,
+  Upload,
+  Loader2,
   CheckCircle,
+  X,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
 import { API_ENDPOINTS } from "@/utils/endpoints";
 import { formatDate, formatDiopter } from "@/utils/formatters";
 import { useDebounce } from "@/hooks/useDebounce";
-import Table from "@/components/common/Table";
 import Pagination from "@/components/common/Pagination";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PrescriptionPrintModal from "@/components/print/PrescriptionPrintModal";
+import { exportPrescriptionsToExcel } from "@/utils/bulkDataHandler";
+
+/**
+ * Format date as DD/MM/YYYY (e.g. 13/10/2026) matching screenshot
+ */
+const formatDateSlash = (dateString) => {
+  if (!dateString) return "-";
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+};
 
 const initialForm = {
   customer_id: "",
@@ -30,9 +46,9 @@ const initialForm = {
 
   // OD (Right)
   od_ucva: "6/18",
-  od_sph: "-1.50",
-  od_cyl: "-0.50",
-  od_axis: 90,
+  od_sph: "0.00",
+  od_cyl: "0.00",
+  od_axis: 0,
   od_bcva: "6/6",
   od_add: "+0.00",
   od_mpd: 31.0,
@@ -41,9 +57,9 @@ const initialForm = {
 
   // OS (Left)
   os_ucva: "6/20",
-  os_sph: "-1.75",
-  os_cyl: "-0.50",
-  os_axis: 90,
+  os_sph: "0.00",
+  os_cyl: "0.00",
+  os_axis: 0,
   os_bcva: "6/6",
   os_add: "+0.00",
   os_mpd: 31.0,
@@ -60,6 +76,15 @@ export default function PrescriptionsPage() {
   const [customers, setCustomers] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Date Range Filter (Default 1 month range as shown in screenshot)
+  const defaultDateEnd = new Date().toISOString().slice(0, 10);
+  const dStart = new Date();
+  dStart.setMonth(dStart.getMonth() - 1);
+  const defaultDateStart = dStart.toISOString().slice(0, 10);
+
+  const [dateStart, setDateStart] = useState(defaultDateStart);
+  const [dateEnd, setDateEnd] = useState(defaultDateEnd);
+
   // Pagination & Search
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -75,6 +100,10 @@ export default function PrescriptionsPage() {
   const [formData, setFormData] = useState(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Export / Import State
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
   // Detail / Print Modal State
   const [selectedRx, setSelectedRx] = useState(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -89,7 +118,7 @@ export default function PrescriptionsPage() {
 
   useEffect(() => {
     fetchPrescriptions();
-  }, [page, limit, debouncedSearch]);
+  }, [page, limit, debouncedSearch, dateStart, dateEnd]);
 
   const loadCustomers = async () => {
     try {
@@ -105,11 +134,15 @@ export default function PrescriptionsPage() {
   const fetchPrescriptions = async () => {
     setIsLoading(true);
     try {
-      const res = await request.get(API_ENDPOINTS.PRESCRIPTIONS.LIST, {
+      const params = {
         page,
         limit,
         search: debouncedSearch,
-      });
+      };
+      if (dateStart) params.date_start = dateStart;
+      if (dateEnd) params.date_end = dateEnd;
+
+      const res = await request.get(API_ENDPOINTS.PRESCRIPTIONS.LIST, params);
       if (res?.success) {
         setPrescriptions(res.data);
         setTotalPages(res.pagination.totalPages);
@@ -119,6 +152,47 @@ export default function PrescriptionsPage() {
       toast.error(err.message || "Gagal memuat data rekam medis");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResetFilter = () => {
+    setDateStart("");
+    setDateEnd("");
+    setSearch("");
+    setPage(1);
+  };
+
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      const params = {};
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (dateStart) params.date_start = dateStart;
+      if (dateEnd) params.date_end = dateEnd;
+
+      let dataToExport = prescriptions;
+      try {
+        const res = await request.get(API_ENDPOINTS.PRESCRIPTIONS.EXPORT, params);
+        if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
+          dataToExport = res.data;
+        }
+      } catch {
+        // Fallback to currently loaded data
+      }
+
+      if (dataToExport.length === 0) {
+        toast.error("Tidak ada data rekam medis untuk diekspor");
+        return;
+      }
+
+      const periodLabel = dateStart && dateEnd ? `${formatDate(dateStart)} - ${formatDate(dateEnd)}` : "Semua Periode";
+      const fileName = exportPrescriptionsToExcel(dataToExport, periodLabel);
+      toast.success(`Berhasil mengekspor ${dataToExport.length} rekam medis (${fileName})!`);
+    } catch (err) {
+      console.error("Gagal ekspor rekam medis:", err);
+      toast.error(err.message || "Gagal mengekspor data rekam medis");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -164,7 +238,7 @@ export default function PrescriptionsPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.customer_id) {
-      toast.error("Silakan pilih Pelanggan!");
+      toast.error("Silakan pilih Pasien / Pelanggan!");
       return;
     }
 
@@ -206,147 +280,307 @@ export default function PrescriptionsPage() {
     setIsPrintModalOpen(true);
   };
 
-  const headers = [
-    { label: "Tanggal & Pasien", align: "left" },
-    { label: "Mata Kanan (OD)", align: "left" },
-    { label: "Mata Kiri (OS)", align: "left" },
-    { label: "Total PD", align: "center" },
-    { label: "Pemeriksa (RO)", align: "left" },
-    { label: "Keluhan / Diagnosa", align: "left" },
-    { label: "Aksi", align: "center" },
-  ];
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-gray-200">
-        <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
-            <Activity className="w-5 h-5 text-blue-600" />
-            Rekam Medis & Refraksi Pasien
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Rekam medis pemeriksaan refraksi klinis terpisah OD dan OS dengan parameter standar optik
-          </p>
-        </div>
+    <div className="space-y-3.5 sm:space-y-4">
+      {/* 1. Search Bar (Full Width, Matching Screenshot) */}
+      <div className="relative w-full">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          placeholder="Cari Nama / No. HP Pasien..."
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+          className="w-full pl-10 pr-4 py-2.5 text-xs bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs placeholder:text-gray-400"
+        />
+      </div>
 
+      {/* 2. Three Action Buttons (Export Excel, Import Excel, + Input Rekam Medis) - Matching Screenshot */}
+      <div className="grid grid-cols-3 gap-2">
+        {/* Export Excel Button (Dark Green) */}
+        <button
+          type="button"
+          onClick={handleExportExcel}
+          disabled={isLoading || isExporting}
+          className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+          title="Download data rekam medis format Excel"
+        >
+          {isExporting ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+          ) : (
+            <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+          )}
+          <span>Export Excel</span>
+        </button>
+
+        {/* Import Excel Button (Amber / Orange) */}
+        <button
+          type="button"
+          onClick={() => setIsImportModalOpen(true)}
+          className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-amber-500 hover:bg-amber-600 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+          title="Import rekam medis pasien dari file Excel"
+        >
+          <Upload className="w-3.5 h-3.5 shrink-0" />
+          <span>Import Excel</span>
+        </button>
+
+        {/* + Input Rekam Medis Button (Blue) */}
         <button
           type="button"
           onClick={handleOpenCreate}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors shrink-0"
+          className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+          title="Catat rekam medis pasien baru"
         >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Rekam Medis</span>
+          <Plus className="w-3.5 h-3.5 shrink-0" />
+          <span>Input Rekam Medis</span>
         </button>
       </div>
 
-      {/* Search & Filter Toolbar */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="relative w-full sm:w-96">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Cari pasien, no telepon, atau pemeriksa..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="w-full pl-10 pr-4 py-2 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
-          />
+      {/* 3. Date Range Filter Bar (Matching Screenshot) */}
+      <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs space-y-1.5">
+        <div className="flex items-center gap-2">
+          {/* Date Start */}
+          <div className="relative flex-1">
+            <input
+              type="date"
+              value={dateStart}
+              onChange={(e) => {
+                setDateStart(e.target.value);
+                setPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-800"
+            />
+          </div>
+
+          <span className="text-gray-400 text-xs font-medium shrink-0">s/d</span>
+
+          {/* Date End */}
+          <div className="relative flex-1">
+            <input
+              type="date"
+              value={dateEnd}
+              onChange={(e) => {
+                setDateEnd(e.target.value);
+                setPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-800"
+            />
+          </div>
+
+          {/* Reset / Reload Button */}
+          <button
+            type="button"
+            onClick={handleResetFilter}
+            className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors cursor-pointer shrink-0"
+            title="Reset Rentang Tanggal"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
         </div>
-        <div className="text-xs text-gray-500">
-          Total Rekam Medis: <span className="font-bold text-gray-800">{totalItems}</span>
+
+        {/* Period Subtitle */}
+        <div className="text-[11px] text-gray-500">
+          Menampilkan periode:{" "}
+          <strong className="text-gray-700">
+            {dateStart && dateEnd
+              ? `${formatDate(dateStart)} — ${formatDate(dateEnd)}`
+              : "Semua Tanggal"}
+          </strong>
         </div>
       </div>
 
-      {/* Main Table */}
-      <Table
-        headers={headers}
-        isLoading={isLoading}
-        isEmpty={prescriptions.length === 0}
-        emptyMessage="Belum ada data rekam medis pasien."
-      >
-        {prescriptions.map((rx) => (
-          <tr key={rx.id} className="hover:bg-gray-50/70 transition-colors">
-            {/* Pasien & Date */}
-            <td className="px-4 py-3 whitespace-nowrap">
-              <div className="font-bold text-xs text-gray-900">{rx.customer_name}</div>
-              <div className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5">
-                <Calendar className="w-3 h-3" />
-                {formatDate(rx.exam_date)} ({rx.customer_phone})
+      {/* 4. Rekam Medis Card List (Matching Screenshot Precisely) */}
+      {isLoading ? (
+        <div className="py-12 text-center text-gray-500 space-y-2">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" />
+          <p className="text-xs">Memuat rekam medis pasien...</p>
+        </div>
+      ) : prescriptions.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center text-gray-400 text-xs">
+          Belum ada data rekam medis pada periode ini.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {prescriptions.map((rx, idx) => {
+            const examTime = rx.created_at
+              ? new Date(rx.created_at).toLocaleTimeString("id-ID", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })
+              : "10.00.00";
+
+            const isFirstVisit = !rx.visit_number || rx.visit_number === 1;
+
+            return (
+              <div
+                key={rx.id}
+                className="bg-white rounded-2xl border border-gray-200/90 p-4 sm:p-5 shadow-2xs space-y-2.5 transition-shadow hover:shadow-xs"
+              >
+                {/* Line 1: No */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500 font-medium">No</span>
+                  <span className="text-gray-900 font-bold">
+                    {(page - 1) * limit + idx + 1}
+                  </span>
+                </div>
+
+                {/* Line 2: Tgl Periksa + Jam */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500 font-medium">Tgl Periksa</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-gray-900">
+                      {formatDateSlash(rx.exam_date)}
+                    </span>
+                    <span className="text-gray-400 text-[11px] flex items-center gap-0.5">
+                      <Clock className="w-3 h-3 text-gray-400" />
+                      <span>{examTime}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Line 3: Nama Pasien + Badge Kunjungan */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500 font-medium">Nama Pasien</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-blue-600 sm:text-sm">
+                      {rx.customer_name}
+                    </span>
+                    <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      {isFirstVisit
+                        ? "Kunjungan pertama"
+                        : `Kunjungan ke-${rx.visit_number}`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Line 4: Usia */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500 font-medium">Usia</span>
+                  <span className="text-gray-800 font-medium">
+                    {rx.customer_age
+                      ? `${rx.customer_age} thn`
+                      : rx.age
+                      ? `${rx.age} thn`
+                      : "-"}
+                  </span>
+                </div>
+
+                {/* Line 5: No. HP */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500 font-medium">No. HP</span>
+                  <span className="text-gray-800 font-mono font-medium">
+                    {rx.customer_phone || "-"}
+                  </span>
+                </div>
+
+                {/* Line 6: OD (Kanan) & OS (Kiri) Breakdown */}
+                <div className="pt-1 text-right space-y-1 font-mono text-[11px]">
+                  <div className="text-gray-500 font-semibold text-[10px]">
+                    OD (Kanan)
+                  </div>
+                  <div className="text-gray-700">
+                    S:{" "}
+                    <span className="font-bold text-gray-900">
+                      {formatDiopter(rx.od_sph)}
+                    </span>{" "}
+                    C:{" "}
+                    <span className="font-bold text-gray-900">
+                      {formatDiopter(rx.od_cyl)}
+                    </span>{" "}
+                    Ax:{" "}
+                    <span className="font-bold text-gray-900">
+                      {rx.od_axis !== undefined ? `${rx.od_axis}°` : "-"}
+                    </span>{" "}
+                    Add:{" "}
+                    <span className="font-bold text-gray-900">
+                      {formatDiopter(rx.od_add)}
+                    </span>
+                  </div>
+
+                  <div className="text-gray-500 font-semibold text-[10px] pt-0.5">
+                    OS (Kiri)
+                  </div>
+                  <div className="text-gray-700">
+                    S:{" "}
+                    <span className="font-bold text-gray-900">
+                      {formatDiopter(rx.os_sph)}
+                    </span>{" "}
+                    C:{" "}
+                    <span className="font-bold text-gray-900">
+                      {formatDiopter(rx.os_cyl)}
+                    </span>{" "}
+                    Ax:{" "}
+                    <span className="font-bold text-gray-900">
+                      {rx.os_axis !== undefined ? `${rx.os_axis}°` : "-"}
+                    </span>{" "}
+                    Add:{" "}
+                    <span className="font-bold text-gray-900">
+                      {formatDiopter(rx.os_add)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Line 7: PD */}
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <span className="text-gray-500 font-medium">PD</span>
+                  <span className="text-gray-800 font-medium">
+                    {rx.total_pd ? `${rx.total_pd} mm` : "-"}
+                  </span>
+                </div>
+
+                {/* Line 8: Kunjungan Count */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500 font-medium">Kunjungan</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-blue-600 font-extrabold text-sm">
+                      {rx.total_visits || rx.visit_number || 1}
+                    </span>
+                    <span className="text-gray-500 text-xs">kunjungan</span>
+                  </div>
+                </div>
+
+                {/* Dashed Separator & Action Buttons (Eye, Edit, Trash) */}
+                <div className="border-t border-dashed border-gray-200 pt-2.5 flex items-center justify-end gap-1.5 sm:gap-2">
+                  {/* Eye (Detail / Cetak Resep) Button - Cyan outline */}
+                  <button
+                    type="button"
+                    onClick={() => handlePrint(rx)}
+                    className="p-1.5 rounded-lg border border-cyan-400 text-cyan-600 bg-white hover:bg-cyan-50 active:scale-95 transition-all cursor-pointer shadow-2xs"
+                    title="Lihat & Cetak Resep Pasien"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Edit Button - Amber outline */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEdit(rx)}
+                    className="p-1.5 rounded-lg border border-amber-400 text-amber-600 bg-white hover:bg-amber-50 active:scale-95 transition-all cursor-pointer shadow-2xs"
+                    title="Edit Rekam Medis"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Delete Button - Rose outline */}
+                  <button
+                    type="button"
+                    onClick={() => setDeleteId(rx.id)}
+                    className="p-1.5 rounded-lg border border-rose-400 text-rose-600 bg-white hover:bg-rose-50 active:scale-95 transition-all cursor-pointer shadow-2xs"
+                    title="Hapus Rekam Medis"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-            </td>
+            );
+          })}
+        </div>
+      )}
 
-            {/* OD Summary */}
-            <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">
-              <div className="text-blue-900 font-semibold">
-                Sph: <span className="font-bold">{formatDiopter(rx.od_sph)}</span> | Cyl: {formatDiopter(rx.od_cyl)} Ax {rx.od_axis}°
-              </div>
-              <div className="text-[10px] text-gray-500">
-                Add: {formatDiopter(rx.od_add)} | BCVA: {rx.od_bcva || "6/6"}
-              </div>
-            </td>
-
-            {/* OS Summary */}
-            <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">
-              <div className="text-blue-900 font-semibold">
-                Sph: <span className="font-bold">{formatDiopter(rx.os_sph)}</span> | Cyl: {formatDiopter(rx.os_cyl)} Ax {rx.os_axis}°
-              </div>
-              <div className="text-[10px] text-gray-500">
-                Add: {formatDiopter(rx.os_add)} | BCVA: {rx.os_bcva || "6/6"}
-              </div>
-            </td>
-
-            {/* Total PD */}
-            <td className="px-4 py-3 text-center whitespace-nowrap text-xs font-bold text-gray-800">
-              {rx.total_pd ? `${rx.total_pd} mm` : "-"}
-            </td>
-
-            {/* Examiner */}
-            <td className="px-4 py-3 whitespace-nowrap text-xs font-medium text-gray-700">
-              {rx.examiner_name}
-            </td>
-
-            {/* Diagnosis */}
-            <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 max-w-xs truncate">
-              {rx.complaint_diagnose || "-"}
-            </td>
-
-            {/* Actions */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
-              <div className="flex items-center justify-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => handlePrint(rx)}
-                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  title="Cetak Rekam Medis"
-                >
-                  <Printer className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleOpenEdit(rx)}
-                  className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                  title="Edit Rekam Medis"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDeleteId(rx.id)}
-                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  title="Hapus Rekam Medis"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </td>
-          </tr>
-        ))}
-      </Table>
-
-      {/* Pagination Footer */}
+      {/* 5. Pagination Footer */}
       <Pagination
         currentPage={page}
         totalPages={totalPages}
@@ -357,9 +591,57 @@ export default function PrescriptionsPage() {
           setLimit(l);
           setPage(1);
         }}
+        itemName="rekam medis"
+        compact={true}
       />
 
-      {/* Create / Edit Modal (Complete OD / OS Clinical Matrix) */}
+      {/* ==========================================
+          IMPORT REKAM MEDIS MODAL
+         ========================================== */}
+      <Modal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        title="Import Rekam Medis Pasien"
+        subtitle="Format impor data riwayat pemeriksaan refraksi optik"
+        maxWidth="max-w-md"
+        footer={
+          <button
+            type="button"
+            onClick={() => setIsImportModalOpen(false)}
+            className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer"
+          >
+            Tutup
+          </button>
+        }
+      >
+        <div className="space-y-3.5 text-xs text-gray-600">
+          <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 text-blue-900 leading-relaxed">
+            <p className="font-bold">Format Kolom Spreadsheet:</p>
+            <p className="text-[11px] mt-0.5">
+              Nama Pasien, Tanggal Periksa, No HP, OD Sph, OD Cyl, OD Axis, OD Add, OS Sph, OS Cyl, OS Axis, OS Add, Total PD.
+            </p>
+          </div>
+
+          <p className="text-gray-500 leading-normal">
+            Untuk mengimpor data dalam jumlah banyak, silakan gunakan file Excel hasil dari tombol <strong>Export Excel</strong> sebagai referensi struktur kolom yang baku.
+          </p>
+
+          <div className="pt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Download Contoh Format (Excel)</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ==========================================
+          CREATE / EDIT REKAM MEDIS MODAL (LENGKAP OD & OS)
+         ========================================== */}
       <Modal
         isOpen={isFormModalOpen}
         onClose={() => setIsFormModalOpen(false)}
@@ -371,7 +653,7 @@ export default function PrescriptionsPage() {
             <button
               type="button"
               onClick={() => setIsFormModalOpen(false)}
-              className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg"
+              className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer"
             >
               Batal
             </button>
@@ -379,7 +661,7 @@ export default function PrescriptionsPage() {
               type="button"
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50"
+              className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50 cursor-pointer"
             >
               {isSubmitting ? "Menyimpan..." : isEditing ? "Simpan Perubahan" : "Simpan Rekam Medis"}
             </button>
@@ -387,22 +669,22 @@ export default function PrescriptionsPage() {
         }
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Patient & Exam Info */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+          {/* Header Data Pasien */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-50 p-3.5 rounded-xl border border-gray-200">
             <div>
               <label className="text-xs font-bold text-gray-700 block mb-1">
-                Pilih Pelanggan / Pasien <span className="text-red-500">*</span>
+                Pilih Pasien <span className="text-red-500">*</span>
               </label>
               <select
                 required
                 value={formData.customer_id}
                 onChange={(e) => setFormData({ ...formData, customer_id: e.target.value })}
-                className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-semibold"
               >
-                <option value="">-- Pilih Pasien --</option>
+                <option value="">-- Pilih Pasien Terdaftar --</option>
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.phone}) - {c.code}
+                    {c.name} ({c.phone || c.code})
                   </option>
                 ))}
               </select>
@@ -410,298 +692,240 @@ export default function PrescriptionsPage() {
 
             <div>
               <label className="text-xs font-bold text-gray-700 block mb-1">
-                Pemeriksa (RO/Optometris/Dokter) <span className="text-red-500">*</span>
+                Pemeriksa Refraksionis (RO) <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 required
                 value={formData.examiner_name}
                 onChange={(e) => setFormData({ ...formData, examiner_name: e.target.value })}
-                className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                placeholder="Nama & Gelar RO"
+                className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
             <div>
               <label className="text-xs font-bold text-gray-700 block mb-1">
-                Tanggal Pemeriksaan <span className="text-red-500">*</span>
+                Tanggal Periksa <span className="text-red-500">*</span>
               </label>
               <input
                 type="date"
                 required
                 value={formData.exam_date}
                 onChange={(e) => setFormData({ ...formData, exam_date: e.target.value })}
-                className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-semibold"
               />
             </div>
           </div>
 
-          {/* OD (Right Eye) Card */}
-          <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-200">
-            <h4 className="text-xs font-extrabold text-blue-900 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></span>
-              Mata Kanan (OD - Oculus Dexter)
-            </h4>
-            <div className="grid grid-cols-3 sm:grid-cols-9 gap-2 text-xs">
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">UCVA</label>
-                <input
-                  type="text"
-                  value={formData.od_ucva}
-                  onChange={(e) => setFormData({ ...formData, od_ucva: e.target.value })}
-                  placeholder="6/18"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
+          {/* Matrix Refraksi OD (Kanan) & OS (Kiri) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* OD (Right Eye) */}
+            <div className="border border-blue-200 bg-blue-50/20 rounded-xl p-3.5 space-y-3">
+              <div className="flex items-center justify-between pb-1.5 border-b border-blue-100">
+                <span className="font-extrabold text-blue-900 text-xs flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+                  MATA KANAN (OD - Oculus Dexter)
+                </span>
+                <span className="text-[10px] text-blue-600 font-mono font-bold">KANAN</span>
               </div>
-              <div>
-                <label className="block text-[10px] font-bold text-blue-900 mb-0.5">SPH</label>
-                <input
-                  type="text"
-                  value={formData.od_sph}
-                  onChange={(e) => setFormData({ ...formData, od_sph: e.target.value })}
-                  placeholder="-1.50"
-                  className="w-full px-2 py-1 bg-white border border-blue-400 rounded text-xs font-bold font-mono"
-                />
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">SPH</label>
+                  <input
+                    type="text"
+                    value={formData.od_sph}
+                    onChange={(e) => setFormData({ ...formData, od_sph: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                    placeholder="-1.50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">CYL</label>
+                  <input
+                    type="text"
+                    value={formData.od_cyl}
+                    onChange={(e) => setFormData({ ...formData, od_cyl: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                    placeholder="-0.50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">AXIS (°)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="180"
+                    value={formData.od_axis}
+                    onChange={(e) => setFormData({ ...formData, od_axis: Number(e.target.value) })}
+                    className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                    placeholder="90"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-[10px] font-bold text-blue-900 mb-0.5">CYL</label>
-                <input
-                  type="text"
-                  value={formData.od_cyl}
-                  onChange={(e) => setFormData({ ...formData, od_cyl: e.target.value })}
-                  placeholder="-0.50"
-                  className="w-full px-2 py-1 bg-white border border-blue-400 rounded text-xs font-semibold font-mono"
-                />
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">ADD</label>
+                  <input
+                    type="text"
+                    value={formData.od_add}
+                    onChange={(e) => setFormData({ ...formData, od_add: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs text-center bg-white border border-gray-300 rounded-md"
+                    placeholder="+2.00"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">MPD (mm)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={formData.od_mpd}
+                    onChange={(e) => setFormData({ ...formData, od_mpd: Number(e.target.value) })}
+                    className="w-full px-2 py-1.5 text-xs text-center bg-white border border-gray-300 rounded-md"
+                    placeholder="31.0"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">BCVA</label>
+                  <input
+                    type="text"
+                    value={formData.od_bcva}
+                    onChange={(e) => setFormData({ ...formData, od_bcva: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs text-center bg-white border border-gray-300 rounded-md"
+                    placeholder="6/6"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">AXIS (0-180)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="180"
-                  value={formData.od_axis}
-                  onChange={(e) => setFormData({ ...formData, od_axis: Number(e.target.value) })}
-                  placeholder="90"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
+            </div>
+
+            {/* OS (Left Eye) */}
+            <div className="border border-indigo-200 bg-indigo-50/20 rounded-xl p-3.5 space-y-3">
+              <div className="flex items-center justify-between pb-1.5 border-b border-indigo-100">
+                <span className="font-extrabold text-indigo-900 text-xs flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                  MATA KIRI (OS - Oculus Sinister)
+                </span>
+                <span className="text-[10px] text-indigo-600 font-mono font-bold">KIRI</span>
               </div>
-              <div>
-                <label className="block text-[10px] font-bold text-emerald-800 mb-0.5">BCVA</label>
-                <input
-                  type="text"
-                  value={formData.od_bcva}
-                  onChange={(e) => setFormData({ ...formData, od_bcva: e.target.value })}
-                  placeholder="6/6"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">SPH</label>
+                  <input
+                    type="text"
+                    value={formData.os_sph}
+                    onChange={(e) => setFormData({ ...formData, os_sph: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500"
+                    placeholder="-1.75"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">CYL</label>
+                  <input
+                    type="text"
+                    value={formData.os_cyl}
+                    onChange={(e) => setFormData({ ...formData, os_cyl: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500"
+                    placeholder="-0.50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">AXIS (°)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="180"
+                    value={formData.os_axis}
+                    onChange={(e) => setFormData({ ...formData, os_axis: Number(e.target.value) })}
+                    className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500"
+                    placeholder="90"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-[10px] font-bold text-indigo-800 mb-0.5">ADD</label>
-                <input
-                  type="text"
-                  value={formData.od_add}
-                  onChange={(e) => setFormData({ ...formData, od_add: e.target.value })}
-                  placeholder="+1.50"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">MPD (mm)</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={formData.od_mpd}
-                  onChange={(e) => setFormData({ ...formData, od_mpd: Number(e.target.value) })}
-                  placeholder="31.0"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">PV (Angle)</label>
-                <input
-                  type="text"
-                  value={formData.od_pv}
-                  onChange={(e) => setFormData({ ...formData, od_pv: e.target.value })}
-                  placeholder="10°"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">SH (Height)</label>
-                <input
-                  type="text"
-                  value={formData.od_sh}
-                  onChange={(e) => setFormData({ ...formData, od_sh: e.target.value })}
-                  placeholder="18 mm"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">ADD</label>
+                  <input
+                    type="text"
+                    value={formData.os_add}
+                    onChange={(e) => setFormData({ ...formData, os_add: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs text-center bg-white border border-gray-300 rounded-md"
+                    placeholder="+2.00"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">MPD (mm)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={formData.os_mpd}
+                    onChange={(e) => setFormData({ ...formData, os_mpd: Number(e.target.value) })}
+                    className="w-full px-2 py-1.5 text-xs text-center bg-white border border-gray-300 rounded-md"
+                    placeholder="31.0"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-600 block mb-0.5">BCVA</label>
+                  <input
+                    type="text"
+                    value={formData.os_bcva}
+                    onChange={(e) => setFormData({ ...formData, os_bcva: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs text-center bg-white border border-gray-300 rounded-md"
+                    placeholder="6/6"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* OS (Left Eye) Card */}
-          <div className="p-3.5 bg-indigo-50/50 rounded-xl border border-indigo-200">
-            <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
-              Mata Kiri (OS - Oculus Sinister)
-            </h4>
-            <div className="grid grid-cols-3 sm:grid-cols-9 gap-2 text-xs">
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">UCVA</label>
-                <input
-                  type="text"
-                  value={formData.os_ucva}
-                  onChange={(e) => setFormData({ ...formData, os_ucva: e.target.value })}
-                  placeholder="6/20"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-indigo-900 mb-0.5">SPH</label>
-                <input
-                  type="text"
-                  value={formData.os_sph}
-                  onChange={(e) => setFormData({ ...formData, os_sph: e.target.value })}
-                  placeholder="-1.75"
-                  className="w-full px-2 py-1 bg-white border border-indigo-400 rounded text-xs font-bold font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-indigo-900 mb-0.5">CYL</label>
-                <input
-                  type="text"
-                  value={formData.os_cyl}
-                  onChange={(e) => setFormData({ ...formData, os_cyl: e.target.value })}
-                  placeholder="-0.50"
-                  className="w-full px-2 py-1 bg-white border border-indigo-400 rounded text-xs font-semibold font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">AXIS (0-180)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="180"
-                  value={formData.os_axis}
-                  onChange={(e) => setFormData({ ...formData, os_axis: Number(e.target.value) })}
-                  placeholder="90"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-emerald-800 mb-0.5">BCVA</label>
-                <input
-                  type="text"
-                  value={formData.os_bcva}
-                  onChange={(e) => setFormData({ ...formData, os_bcva: e.target.value })}
-                  placeholder="6/6"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-indigo-800 mb-0.5">ADD</label>
-                <input
-                  type="text"
-                  value={formData.os_add}
-                  onChange={(e) => setFormData({ ...formData, os_add: e.target.value })}
-                  placeholder="+1.50"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">MPD (mm)</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={formData.os_mpd}
-                  onChange={(e) => setFormData({ ...formData, os_mpd: Number(e.target.value) })}
-                  placeholder="31.0"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">PV (Angle)</label>
-                <input
-                  type="text"
-                  value={formData.os_pv}
-                  onChange={(e) => setFormData({ ...formData, os_pv: e.target.value })}
-                  placeholder="10°"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-0.5">SH (Height)</label>
-                <input
-                  type="text"
-                  value={formData.os_sh}
-                  onChange={(e) => setFormData({ ...formData, os_sh: e.target.value })}
-                  placeholder="18 mm"
-                  className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* General Optical Parameters */}
+          {/* Pupillary Distance & Catatan */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-bold text-gray-700 block mb-1">
-                Total PD (Pupillary Distance, mm)
+                Total PD (Pupillary Distance) mm
               </label>
               <input
                 type="number"
                 step="0.5"
                 value={formData.total_pd}
                 onChange={(e) => setFormData({ ...formData, total_pd: Number(e.target.value) })}
-                placeholder="62.5"
-                className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono font-bold"
+                className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold"
+                placeholder="62.0"
               />
             </div>
-
             <div className="sm:col-span-2">
               <label className="text-xs font-bold text-gray-700 block mb-1">
-                Keluhan / Diagnosa Pasien (Catatan Klinis)
+                Keluhan Pasien / Diagnosa Refraksi
               </label>
               <input
                 type="text"
                 value={formData.complaint_diagnose}
                 onChange={(e) => setFormData({ ...formData, complaint_diagnose: e.target.value })}
-                placeholder="Contoh: Penglihatan buram jauh, sering pusing saat membaca dekat..."
-                className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Pandangan buram jarak jauh, silau saat malam..."
               />
             </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-bold text-gray-700 block mb-1">
-              Catatan Kustom / Rekomendasi Lensa
-            </label>
-            <textarea
-              rows="2"
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder="Contoh: Disarankan Lensa Progresif Freeform dengan coating Bluechromic..."
-              className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
           </div>
         </form>
       </Modal>
 
-      {/* Delete Confirm Dialog */}
+      {/* Detail / Cetak Lembar Resep Modal */}
+      <PrescriptionPrintModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        prescription={selectedRx}
+      />
+
+      {/* Delete Confirm */}
       <ConfirmDialog
         isOpen={!!deleteId}
         onClose={() => setDeleteId(null)}
         onConfirm={handleDelete}
         isLoading={isDeleting}
         title="Hapus Rekam Medis"
-        message="Apakah Anda yakin ingin menghapus catatan rekam medis ini? Data rekam medis pasien akan dihapus secara permanen."
-      />
-
-      {/* Printable Prescription Card Modal */}
-      <PrescriptionPrintModal
-        isOpen={isPrintModalOpen}
-        onClose={() => setIsPrintModalOpen(false)}
-        prescription={selectedRx}
+        message="Apakah Anda yakin ingin menghapus catatan rekam medis ini?"
       />
     </div>
   );

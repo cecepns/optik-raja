@@ -537,3 +537,105 @@ export function exportCustomersToExcel(customers, customFilename) {
   XLSX.writeFile(wb, fileName);
   return fileName;
 }
+
+// ==========================================
+// 3. PRESCRIPTION (REKAM MEDIS) BULK UTILITIES
+// ==========================================
+
+/**
+ * Exports prescriptions array to a formatted Excel file
+ */
+export function exportPrescriptionsToExcel(prescriptions, periodLabel, customFilename) {
+  const wb = XLSX.utils.book_new();
+
+  const headers = [
+    "No",
+    "Tanggal Periksa",
+    "Nama Pasien",
+    "Usia",
+    "No HP / WhatsApp",
+    "Kunjungan Ke",
+    "OD Spheris",
+    "OD Cylinder",
+    "OD Axis",
+    "OD Addition",
+    "OD MPD",
+    "OD BCVA",
+    "OS Spheris",
+    "OS Cylinder",
+    "OS Axis",
+    "OS Addition",
+    "OS MPD",
+    "OS BCVA",
+    "Total PD",
+    "Pemeriksa (RO)",
+    "Keluhan / Diagnosa",
+    "Catatan Klinis",
+  ];
+
+  const rows = (prescriptions || []).map((rx, idx) => [
+    idx + 1,
+    rx.exam_date ? formatDate(rx.exam_date) : "-",
+    rx.customer_name || "-",
+    rx.customer_age ? `${rx.customer_age} Thn` : "-",
+    rx.customer_phone || "-",
+    rx.visit_number || 1,
+    rx.od_sph || "0.00",
+    rx.od_cyl || "0.00",
+    rx.od_axis !== undefined ? `${rx.od_axis}°` : "0°",
+    rx.od_add || "0.00",
+    rx.od_mpd || 31,
+    rx.od_bcva || "6/6",
+    rx.os_sph || "0.00",
+    rx.os_cyl || "0.00",
+    rx.os_axis !== undefined ? `${rx.os_axis}°` : "0°",
+    rx.os_add || "0.00",
+    rx.os_mpd || 31,
+    rx.os_bcva || "6/6",
+    rx.total_pd ? `${rx.total_pd} mm` : "62.0 mm",
+    rx.examiner_name || "-",
+    rx.complaint_diagnose || "-",
+    rx.notes || "-",
+  ]);
+
+  const wsData = [
+    ["OPTIK RAJA OFFICIAL"],
+    ["DATA REKAM MEDIS & HASIL REFRAKSI PASIEN"],
+    [`Periode: ${periodLabel || "Semua Data"}   |   Total Data: ${prescriptions.length} rekam medis   |   Tanggal Ekspor: ${formatDateTime(new Date())}`],
+    [],
+    headers,
+    ...rows,
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  ws["!cols"] = [
+    { wch: 6 },  // No
+    { wch: 16 }, // Tgl
+    { wch: 26 }, // Nama
+    { wch: 10 }, // Usia
+    { wch: 18 }, // No HP
+    { wch: 14 }, // Kunjungan
+    { wch: 12 }, // OD Sph
+    { wch: 12 }, // OD Cyl
+    { wch: 10 }, // OD Axis
+    { wch: 12 }, // OD Add
+    { wch: 10 }, // OD MPD
+    { wch: 10 }, // OD BCVA
+    { wch: 12 }, // OS Sph
+    { wch: 12 }, // OS Cyl
+    { wch: 10 }, // OS Axis
+    { wch: 12 }, // OS Add
+    { wch: 10 }, // OS MPD
+    { wch: 10 }, // OS BCVA
+    { wch: 12 }, // Total PD
+    { wch: 24 }, // Pemeriksa
+    { wch: 32 }, // Keluhan
+    { wch: 32 }, // Catatan
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, "Rekam Medis");
+  const fileName = customFilename || createFileName("Rekam_Medis_Pasien_Optik_Raja");
+  XLSX.writeFile(wb, fileName);
+  return fileName;
+}

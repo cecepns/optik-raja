@@ -79,11 +79,14 @@ export const API_ENDPOINTS = {
     CREATE: "/prescriptions",
     UPDATE: (id) => `/prescriptions/${id}`,
     DELETE: (id) => `/prescriptions/${id}`,
+    EXPORT: "/prescriptions/export",
   },
   TRANSACTIONS: {
     LIST: "/transactions",
     DETAIL: (id) => `/transactions/${id}`,
     CREATE: "/transactions",
+    UPDATE: (id) => `/transactions/${id}`,
+    DELETE: (id) => `/transactions/${id}`,
     PAY: (id) => `/transactions/${id}/pay`,
   },
   LAB_ORDERS: {
@@ -95,6 +98,12 @@ export const API_ENDPOINTS = {
     CREATE: "/expenses",
     UPDATE: (id) => `/expenses/${id}`,
     DELETE: (id) => `/expenses/${id}`,
+  },
+  EXPENSE_CATEGORIES: {
+    LIST: "/expense-categories",
+    CREATE: "/expense-categories",
+    UPDATE: (id) => `/expense-categories/${id}`,
+    DELETE: (id) => `/expense-categories/${id}`,
   },
   REPORTS: {
     DASHBOARD: "/reports/dashboard",

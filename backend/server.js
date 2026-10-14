@@ -144,6 +144,42 @@ const initDatabaseTables = async () => {
     } catch {
       // ignore
     }
+
+    // Ensure expense_categories table exists & seed default categories
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS expense_categories (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          name VARCHAR(100) UNIQUE NOT NULL,
+          description VARCHAR(255) DEFAULT '',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      const [catRows] = await pool.query('SELECT COUNT(*) as count FROM expense_categories');
+      if (catRows[0].count === 0) {
+        const defaultExpenseCats = [
+          ['Operasional Toko', 'Biaya umum dan kebutuhan harian operasional toko optik'],
+          ['Listrik & Air', 'Tagihan rutin PLN, PDAM, dan internet optik'],
+          ['Pembelian Bahan/Lensa', 'Pengadaan lensa mentah, frame display, dan sparepart optik'],
+          ['Gaji & Bonus', 'Gaji staf, bonus penjualan, dan insentif RO'],
+          ['Sewa Tempat', 'Biaya sewa outlet ruko atau toko optik'],
+          ['Perawatan Mesin', 'Servis rutin mesin faset/edger dan kalibrasi auto-refraktor'],
+          ['Lain-lain', 'Pengeluaran kas kecil lainnya yang belum terklasifikasi']
+        ];
+        await pool.query(
+          'INSERT INTO expense_categories (name, description) VALUES ?',
+          [defaultExpenseCats]
+        );
+        console.log('✓ Default expense categories seeded successfully');
+      }
+
+      // Ensure expenses.category column is VARCHAR(100) to support custom categories
+      await pool.query('ALTER TABLE expenses MODIFY COLUMN category VARCHAR(100) NOT NULL');
+    } catch (catErr) {
+      console.warn('Expense categories init info:', catErr.message);
+    }
   } catch (err) {
     console.error('Database init warning:', err.message);
   }
@@ -998,7 +1034,7 @@ app.delete('/api/products/:id', async (req, res) => {
 // ==========================================
 app.get('/api/prescriptions', async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '', customer_id = '' } = req.query;
+    const { page = 1, limit = 10, search = '', customer_id = '', date_start = '', date_end = '' } = req.query;
     let whereConditions = ['1=1'];
     let params = [];
 
@@ -1012,13 +1048,25 @@ app.get('/api/prescriptions', async (req, res) => {
       params.push(parseInt(customer_id));
     }
 
+    if (date_start) {
+      whereConditions.push('p.exam_date >= ?');
+      params.push(date_start);
+    }
+
+    if (date_end) {
+      whereConditions.push('p.exam_date <= ?');
+      params.push(date_end);
+    }
+
     const whereClause = whereConditions.join(' AND ');
     const countSql = `SELECT COUNT(*) AS total 
                       FROM prescriptions p 
                       JOIN customers c ON p.customer_id = c.id 
                       WHERE ${whereClause}`;
 
-    const dataSql = `SELECT p.*, c.name AS customer_name, c.phone AS customer_phone, c.code AS customer_code
+    const dataSql = `SELECT p.*, c.name AS customer_name, c.phone AS customer_phone, c.code AS customer_code, c.age AS customer_age,
+                            (SELECT COUNT(*) FROM prescriptions p2 WHERE p2.customer_id = p.customer_id AND (p2.exam_date < p.exam_date OR (p2.exam_date = p.exam_date AND p2.id <= p.id))) AS visit_number,
+                            (SELECT COUNT(*) FROM prescriptions p3 WHERE p3.customer_id = p.customer_id) AS total_visits
                      FROM prescriptions p 
                      JOIN customers c ON p.customer_id = c.id 
                      WHERE ${whereClause} 
@@ -1026,6 +1074,49 @@ app.get('/api/prescriptions', async (req, res) => {
 
     const result = await paginateQuery(countSql, dataSql, params, params, page, limit);
     res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/prescriptions/export', async (req, res) => {
+  try {
+    const { search = '', customer_id = '', date_start = '', date_end = '' } = req.query;
+    let whereConditions = ['1=1'];
+    let params = [];
+
+    if (search) {
+      whereConditions.push('(c.name LIKE ? OR c.phone LIKE ? OR p.examiner_name LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    if (customer_id) {
+      whereConditions.push('p.customer_id = ?');
+      params.push(parseInt(customer_id));
+    }
+
+    if (date_start) {
+      whereConditions.push('p.exam_date >= ?');
+      params.push(date_start);
+    }
+
+    if (date_end) {
+      whereConditions.push('p.exam_date <= ?');
+      params.push(date_end);
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+    const [rows] = await pool.query(
+      `SELECT p.*, c.name AS customer_name, c.phone AS customer_phone, c.code AS customer_code, c.age AS customer_age,
+              (SELECT COUNT(*) FROM prescriptions p2 WHERE p2.customer_id = p.customer_id AND (p2.exam_date < p.exam_date OR (p2.exam_date = p.exam_date AND p2.id <= p.id))) AS visit_number,
+              (SELECT COUNT(*) FROM prescriptions p3 WHERE p3.customer_id = p.customer_id) AS total_visits
+       FROM prescriptions p 
+       JOIN customers c ON p.customer_id = c.id 
+       WHERE ${whereClause} 
+       ORDER BY p.exam_date DESC, p.id DESC`,
+      params
+    );
+    res.json({ success: true, data: rows });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1449,6 +1540,205 @@ app.post('/api/transactions/:id/pay', async (req, res) => {
   }
 });
 
+// Edit Transaksi (Header, Items & Status Pembayaran)
+app.put('/api/transactions/:id', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id } = req.params;
+
+    const [tRows] = await connection.query('SELECT * FROM transactions WHERE id = ?', [id]);
+    if (!tRows.length) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan' });
+    }
+
+    const currentTrx = tRows[0];
+    const {
+      customer_id,
+      employee_id,
+      prescription_id,
+      completion_estimate,
+      subtotal,
+      discount_amount = 0,
+      bpjs_subsidy = 0,
+      grand_total,
+      paid_amount,
+      payment_status,
+      payment_method,
+      dp_amount,
+      remaining_amount,
+      notes,
+      items
+    } = req.body;
+
+    // Jika items dikirim, sinkronisasi item dan sesuaikan stok produk
+    if (Array.isArray(items) && items.length > 0) {
+      // 1. Kembalikan stok item lama
+      const [oldItems] = await connection.query(
+        'SELECT product_id, quantity FROM transaction_items WHERE transaction_id = ?',
+        [id]
+      );
+      for (const oldItem of oldItems) {
+        if (oldItem.product_id) {
+          await connection.query(
+            'UPDATE products SET stock = stock + ? WHERE id = ?',
+            [oldItem.quantity || 1, oldItem.product_id]
+          );
+        }
+      }
+
+      // 2. Hapus item lama
+      await connection.query('DELETE FROM transaction_items WHERE transaction_id = ?', [id]);
+
+      // 3. Masukkan item baru & kurangi stok produk
+      for (const item of items) {
+        await connection.query(
+          `INSERT INTO transaction_items (
+            transaction_id, product_id, product_name, category, price, cost_price, quantity, discount, total_price, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            id,
+            item.product_id || null,
+            item.product_name,
+            item.category || 'Aksesori',
+            item.price || 0,
+            item.cost_price || 0,
+            item.quantity || 1,
+            item.discount || 0,
+            item.total_price || 0,
+            item.notes || ''
+          ]
+        );
+
+        if (item.product_id) {
+          await connection.query(
+            'UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?',
+            [item.quantity || 1, item.product_id]
+          );
+        }
+      }
+    }
+
+    const finalSubtotal = subtotal !== undefined ? parseFloat(subtotal) : parseFloat(currentTrx.subtotal);
+    const finalDiscount = discount_amount !== undefined ? parseFloat(discount_amount) : parseFloat(currentTrx.discount_amount);
+    const finalBpjs = bpjs_subsidy !== undefined ? parseFloat(bpjs_subsidy) : parseFloat(currentTrx.bpjs_subsidy);
+    const finalGrandTotal = grand_total !== undefined ? parseFloat(grand_total) : Math.max(0, finalSubtotal - finalDiscount - finalBpjs);
+    const finalPaid = paid_amount !== undefined ? parseFloat(paid_amount) : parseFloat(currentTrx.paid_amount);
+    const finalRemaining = remaining_amount !== undefined ? parseFloat(remaining_amount) : Math.max(0, finalGrandTotal - finalPaid);
+    const finalStatus = payment_status || (finalRemaining <= 0 ? 'Lunas' : finalPaid > 0 ? 'DP' : 'Belum Lunas');
+    const finalDp = finalStatus === 'DP' ? finalPaid : (dp_amount !== undefined ? parseFloat(dp_amount) : 0);
+
+    // Update transactions table
+    await connection.query(
+      `UPDATE transactions SET
+        customer_id = ?,
+        employee_id = ?,
+        prescription_id = ?,
+        completion_estimate = ?,
+        subtotal = ?,
+        discount_amount = ?,
+        bpjs_subsidy = ?,
+        grand_total = ?,
+        paid_amount = ?,
+        payment_status = ?,
+        payment_method = ?,
+        dp_amount = ?,
+        remaining_amount = ?,
+        notes = ?
+       WHERE id = ?`,
+      [
+        customer_id || currentTrx.customer_id,
+        employee_id || currentTrx.employee_id,
+        prescription_id !== undefined ? (prescription_id || null) : currentTrx.prescription_id,
+        completion_estimate !== undefined ? (completion_estimate || null) : currentTrx.completion_estimate,
+        finalSubtotal,
+        finalDiscount,
+        finalBpjs,
+        finalGrandTotal,
+        finalPaid,
+        finalStatus,
+        payment_method || currentTrx.payment_method,
+        finalDp,
+        finalRemaining,
+        notes !== undefined ? notes : currentTrx.notes,
+        id
+      ]
+    );
+
+    // Sync lab orders if completion_estimate or customer_id is updated
+    if (completion_estimate !== undefined || customer_id) {
+      await connection.query(
+        `UPDATE lab_orders SET
+          estimated_date = COALESCE(?, estimated_date),
+          customer_id = COALESCE(?, customer_id)
+         WHERE transaction_id = ?`,
+        [completion_estimate || null, customer_id || null, id]
+      );
+    }
+
+    await connection.commit();
+
+    const [updatedTrx] = await pool.query('SELECT * FROM transactions WHERE id = ?', [id]);
+    res.json({
+      success: true,
+      message: 'Data transaksi berhasil diperbarui',
+      data: updatedTrx[0]
+    });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// Hapus Transaksi & Kembalikan Stok Barang
+app.delete('/api/transactions/:id', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id } = req.params;
+
+    const [tRows] = await connection.query('SELECT * FROM transactions WHERE id = ?', [id]);
+    if (!tRows.length) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan' });
+    }
+
+    // Ambil item transaksi untuk mengembalikan stok barang ke gudang
+    const [items] = await connection.query(
+      'SELECT product_id, quantity FROM transaction_items WHERE transaction_id = ?',
+      [id]
+    );
+    for (const item of items) {
+      if (item.product_id) {
+        await connection.query(
+          'UPDATE products SET stock = stock + ? WHERE id = ?',
+          [item.quantity || 1, item.product_id]
+        );
+      }
+    }
+
+    // Hapus data terkait (lab order, pembayaran, item, dan transaksi utama)
+    await connection.query('DELETE FROM lab_orders WHERE transaction_id = ?', [id]);
+    await connection.query('DELETE FROM transaction_payments WHERE transaction_id = ?', [id]);
+    await connection.query('DELETE FROM transaction_items WHERE transaction_id = ?', [id]);
+    await connection.query('DELETE FROM transactions WHERE id = ?', [id]);
+
+    await connection.commit();
+    res.json({
+      success: true,
+      message: 'Transaksi berhasil dihapus dan stok barang telah dikembalikan ke gudang'
+    });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
 // ==========================================
 // 7. LAB / FASET ORDERS ENDPOINTS
 // ==========================================
@@ -1645,6 +1935,114 @@ app.delete('/api/expenses/:id', async (req, res) => {
     const { id } = req.params;
     await pool.query('DELETE FROM expenses WHERE id = ?', [id]);
     res.json({ success: true, message: 'Pengeluaran berhasil dihapus' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ==========================================
+// 8b. EXPENSE CATEGORIES (KATEGORI PENGELUARAN KAS)
+// ==========================================
+app.get('/api/expense-categories', async (req, res) => {
+  try {
+    const { search = '' } = req.query;
+    let sql = 'SELECT * FROM expense_categories';
+    const params = [];
+    if (search) {
+      sql += ' WHERE name LIKE ? OR description LIKE ?';
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    sql += ' ORDER BY name ASC';
+    const [rows] = await pool.query(sql, params);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/expense-categories', async (req, res) => {
+  try {
+    const { name, description = '' } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Nama kategori wajib diisi' });
+    }
+
+    const trimmedName = name.trim();
+
+    // Check duplicate
+    const [existing] = await pool.query('SELECT id FROM expense_categories WHERE LOWER(name) = LOWER(?)', [trimmedName]);
+    if (existing.length > 0) {
+      return res.status(400).json({ success: false, message: 'Kategori dengan nama tersebut sudah ada' });
+    }
+
+    const [result] = await pool.query(
+      'INSERT INTO expense_categories (name, description) VALUES (?, ?)',
+      [trimmedName, description ? description.trim() : '']
+    );
+
+    const [created] = await pool.query('SELECT * FROM expense_categories WHERE id = ?', [result.insertId]);
+    res.status(201).json({ success: true, message: 'Kategori pengeluaran berhasil ditambahkan', data: created[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.put('/api/expense-categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description = '' } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Nama kategori wajib diisi' });
+    }
+
+    const trimmedName = name.trim();
+
+    // Get current category
+    const [current] = await pool.query('SELECT * FROM expense_categories WHERE id = ?', [id]);
+    if (current.length === 0) {
+      return res.status(404).json({ success: false, message: 'Kategori tidak ditemukan' });
+    }
+
+    const oldName = current[0].name;
+
+    // Check duplicate if name changed
+    if (oldName.toLowerCase() !== trimmedName.toLowerCase()) {
+      const [existing] = await pool.query(
+        'SELECT id FROM expense_categories WHERE LOWER(name) = LOWER(?) AND id != ?',
+        [trimmedName, id]
+      );
+      if (existing.length > 0) {
+        return res.status(400).json({ success: false, message: 'Kategori dengan nama tersebut sudah ada' });
+      }
+    }
+
+    await pool.query(
+      'UPDATE expense_categories SET name = ?, description = ? WHERE id = ?',
+      [trimmedName, description ? description.trim() : '', id]
+    );
+
+    // Keep existing expenses synchronized with the updated category name
+    if (oldName !== trimmedName) {
+      await pool.query('UPDATE expenses SET category = ? WHERE category = ?', [trimmedName, oldName]);
+    }
+
+    const [updated] = await pool.query('SELECT * FROM expense_categories WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Kategori pengeluaran berhasil diperbarui', data: updated[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.delete('/api/expense-categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [current] = await pool.query('SELECT * FROM expense_categories WHERE id = ?', [id]);
+    if (current.length === 0) {
+      return res.status(404).json({ success: false, message: 'Kategori tidak ditemukan' });
+    }
+
+    await pool.query('DELETE FROM expense_categories WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Kategori pengeluaran berhasil dihapus' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

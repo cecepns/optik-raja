@@ -118,7 +118,7 @@ CREATE TABLE products (
   sku VARCHAR(50) UNIQUE NOT NULL,
   barcode VARCHAR(50) UNIQUE,
   name VARCHAR(150) NOT NULL,
-  category ENUM('Frame', 'Lensa', 'Aksesori') NOT NULL,
+  category VARCHAR(50) NOT NULL,
   brand VARCHAR(80),
   cost_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   selling_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
@@ -304,12 +304,31 @@ CREATE TABLE lab_orders (
   FOREIGN KEY (technician_id) REFERENCES employees(id) ON DELETE SET NULL
 );
 
--- 10. Table Expenses (Pengeluaran Operasional)
+-- 10. Table Expense Categories (Kategori Pengeluaran Kas)
+DROP TABLE IF EXISTS expense_categories;
+CREATE TABLE expense_categories (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(100) UNIQUE NOT NULL,
+  description VARCHAR(255) DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+INSERT INTO expense_categories (id, name, description) VALUES
+(1, 'Operasional Toko', 'Biaya umum dan kebutuhan harian operasional toko optik'),
+(2, 'Listrik & Air', 'Tagihan rutin PLN, PDAM, dan internet optik'),
+(3, 'Pembelian Bahan/Lensa', 'Pengadaan lensa mentah, frame display, dan sparepart optik'),
+(4, 'Gaji & Bonus', 'Gaji staf, bonus penjualan, dan insentif RO'),
+(5, 'Sewa Tempat', 'Biaya sewa outlet ruko atau toko optik'),
+(6, 'Perawatan Mesin', 'Servis rutin mesin faset/edger dan kalibrasi auto-refraktor'),
+(7, 'Lain-lain', 'Pengeluaran kas kecil lainnya yang belum terklasifikasi');
+
+-- 11. Table Expenses (Pengeluaran Operasional)
 DROP TABLE IF EXISTS expenses;
 CREATE TABLE expenses (
   id INT PRIMARY KEY AUTO_INCREMENT,
   expense_date DATE NOT NULL,
-  category ENUM('Listrik & Air', 'Pembelian Bahan/Lensa', 'Gaji & Bonus', 'Sewa Tempat', 'Operasional Toko', 'Perawatan Mesin', 'Lain-lain') NOT NULL,
+  category VARCHAR(100) NOT NULL,
   amount DECIMAL(12,2) NOT NULL,
   description TEXT NOT NULL,
   recipient VARCHAR(100),

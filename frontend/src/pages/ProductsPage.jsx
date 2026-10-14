@@ -6,13 +6,13 @@ import {
   Edit2,
   Trash2,
   Barcode,
-  Tag,
-  AlertTriangle,
   Upload,
-  Image,
   FileSpreadsheet,
   FileUp,
   Loader2,
+  Printer,
+  Eye,
+  ChevronDown,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
@@ -26,6 +26,7 @@ import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ProductImage from "@/components/common/ProductImage";
 import ProductImportModal from "@/components/common/ProductImportModal";
 import { exportProductsToExcel } from "@/utils/bulkDataHandler";
+import { useApp } from "@/context/AppContext";
 
 const initialForm = {
   sku: "",
@@ -42,7 +43,133 @@ const initialForm = {
   is_active: 1,
 };
 
+/**
+ * Clean iframe print function for master products stock & catalog
+ */
+function printProductCatalog(products, categoryFilter, settings = {}) {
+  const storeName = settings.store_name || "Optik Raja Official";
+  const permitNo = settings.optician_permit_no || "KEMENKES RI NO. 445/RO-OPT/JBR/2024";
+  const address = settings.address || "Jl. Merdeka Raya No. 88, Pusat Bisnis Nusantara";
+  const phone = settings.phone || "0812-9876-5432";
+
+  const totalStock = products.reduce((acc, p) => acc + (parseInt(p.stock) || 0), 0);
+
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "none";
+  iframe.setAttribute("aria-hidden", "true");
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`
+    <!DOCTYPE html>
+    <html lang="id">
+      <head>
+        <meta charset="utf-8" />
+        <title>Katalog Master Produk - ${storeName}</title>
+        <style>
+          @page { size: A4 portrait; margin: 12mm 14mm; }
+          * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+          body { color: #0f172a; margin: 0; padding: 0; font-size: 11px; }
+          .letterhead { border-bottom: 2px solid #2563eb; padding-bottom: 8px; margin-bottom: 12px; }
+          .store-name { font-size: 16px; font-weight: 800; color: #0f172a; }
+          .store-meta { font-size: 9px; color: #475569; margin-top: 2px; }
+          .title-banner { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px 12px; margin-bottom: 12px; }
+          .title { font-size: 12px; font-weight: 800; color: #1e3a8a; }
+          .subtitle { font-size: 9px; color: #64748b; margin-top: 2px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 10px; }
+          th { background: #1e3a8a; color: #ffffff; font-weight: 700; padding: 6px 8px; border: 1px solid #1e3a8a; }
+          td { padding: 6px 8px; border: 1px solid #e2e8f0; color: #1e293b; }
+          tr:nth-child(even) td { background-color: #f8fafc; }
+          .total-row td { background: #f1f5f9; font-weight: 800; border-top: 2px solid #cbd5e1; }
+          .text-center { text-align: center; }
+          .text-right { text-align: right; }
+          .font-bold { font-weight: 700; }
+          .signature-box { margin-top: 24px; float: right; width: 200px; text-align: center; }
+          .signature-space { height: 50px; }
+        </style>
+      </head>
+      <body>
+        <div class="letterhead">
+          <div class="store-name">${storeName.toUpperCase()}</div>
+          <div class="store-meta">Izin: ${permitNo} | Alamat: ${address} | Telp: ${phone}</div>
+        </div>
+        <div class="title-banner">
+          <div class="title">KATALOG MASTER PRODUK & INVENTARIS OPTIK</div>
+          <div class="subtitle">Kategori: ${categoryFilter || "Semua Jenis"} | Waktu Cetak: ${new Date().toLocaleString("id-ID")}</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 5%; text-align: center;">No</th>
+              <th style="width: 18%;">Barcode / SKU</th>
+              <th style="width: 37%;">Nama Produk & Spesifikasi</th>
+              <th style="width: 15%; text-align: center;">Kategori</th>
+              <th style="width: 10%; text-align: center;">Stok</th>
+              <th style="width: 15%; text-align: right;">Harga Jual</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              products.length > 0
+                ? products.map((p, idx) => `
+                  <tr>
+                    <td class="text-center">${idx + 1}</td>
+                    <td style="font-family: monospace;">${p.barcode || p.sku}</td>
+                    <td class="font-bold">
+                      ${p.name}
+                      ${p.specifications ? `<br/><span style="font-size: 8.5px; color: #2563eb; font-weight: normal;">${p.specifications}</span>` : ""}
+                    </td>
+                    <td class="text-center">${p.category}</td>
+                    <td class="text-center font-bold">${p.stock} ${p.unit || "Pcs"}</td>
+                    <td class="text-right font-bold" style="color: #047857;">${formatRupiah(p.selling_price)}</td>
+                  </tr>
+                `).join("")
+                : '<tr><td colspan="6" class="text-center">Tidak ada produk yang terdaftar.</td></tr>'
+            }
+            <tr class="total-row">
+              <td colspan="4" class="text-center">TOTAL PRODUK (${products.length} Item)</td>
+              <td class="text-center font-bold">${totalStock} Pcs</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="signature-box">
+          <div>${new Date().toLocaleDateString("id-ID")}</div>
+          <div>Penanggung Jawab Optik,</div>
+          <div class="signature-space"></div>
+          <div class="font-bold">( ${storeName} )</div>
+        </div>
+      </body>
+    </html>
+  `);
+  doc.close();
+
+  iframe.onload = () => {
+    setTimeout(() => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (err) {
+        console.error("Print error:", err);
+      } finally {
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 60000);
+      }
+    }, 250);
+  };
+}
+
 export default function ProductsPage() {
+  const { settings } = useApp();
   const [products, setProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -62,6 +189,10 @@ export default function ProductsPage() {
   const [formData, setFormData] = useState(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  // Detail Modal State (Eye icon)
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
 
   // Delete Confirm State
   const [deleteId, setDeleteId] = useState(null);
@@ -93,6 +224,15 @@ export default function ProductsPage() {
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const handlePrintCatalog = () => {
+    if (products.length === 0) {
+      toast.error("Tidak ada data produk untuk dicetak");
+      return;
+    }
+    printProductCatalog(products, categoryFilter, settings);
+    toast.success("Membuka dialog cetak katalog produk...");
   };
 
   useEffect(() => {
@@ -131,39 +271,48 @@ export default function ProductsPage() {
 
   const handleOpenEdit = (p) => {
     setFormData({
-      sku: p.sku,
+      sku: p.sku || "",
       barcode: p.barcode || "",
-      name: p.name,
-      category: p.category,
+      name: p.name || "",
+      category: p.category || "Frame",
       brand: p.brand || "",
-      cost_price: p.cost_price,
-      selling_price: p.selling_price,
-      stock: p.stock,
+      cost_price: p.cost_price || "",
+      selling_price: p.selling_price || "",
+      stock: p.stock !== undefined ? p.stock : 10,
       unit: p.unit || "Pcs",
       specifications: p.specifications || "",
       image: p.image || "",
-      is_active: p.is_active,
+      is_active: p.is_active !== undefined ? p.is_active : 1,
     });
     setIsEditing(true);
     setEditId(p.id);
     setIsModalOpen(true);
   };
 
+  const handleOpenDetail = (p) => {
+    setSelectedProduct(p);
+    setIsDetailModalOpen(true);
+  };
+
   const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
+    const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Ukuran file gambar maksimal 5MB");
+    // Validate size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Ukuran gambar maksimal 2MB");
       return;
     }
 
+    setIsUploadingImage(true);
+    const form = new FormData();
+    form.append("image", file);
+
     try {
-      setIsUploadingImage(true);
-      const res = await request.upload(API_ENDPOINTS.UPLOAD, file);
-      if (res?.url) {
-        setFormData((prev) => ({ ...prev, image: res.url }));
-        toast.success("Foto produk berhasil diunggah!");
+      const res = await request.post(API_ENDPOINTS.UPLOAD, form);
+      if (res?.success) {
+        setFormData((prev) => ({ ...prev, image: res.data.url }));
+        toast.success("Foto produk berhasil diunggah");
       }
     } catch (err) {
       toast.error(err.message || "Gagal mengunggah foto produk");
@@ -174,8 +323,8 @@ export default function ProductsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.sku || !formData.name || !formData.category) {
-      toast.error("SKU, Nama Produk, dan Kategori wajib diisi");
+    if (!formData.name || !formData.selling_price || !formData.sku) {
+      toast.error("SKU, Nama Produk, dan Harga Jual wajib diisi");
       return;
     }
 
@@ -212,112 +361,103 @@ export default function ProductsPage() {
     }
   };
 
+  // Compact 4-Column Table Header (Matching User's Reference Screenshot)
   const headers = [
-    { label: "Foto", align: "center", className: "w-16" },
-    { label: "SKU & Barcode", align: "left" },
-    { label: "Nama Produk & Brand", align: "left" },
-    { label: "Kategori", align: "center" },
-    { label: "Harga Modal", align: "right" },
-    { label: "Harga Jual", align: "right" },
-    { label: "Sisa Stok", align: "center" },
-    { label: "Spesifikasi", align: "left" },
-    { label: "Aksi", align: "center" },
+    { label: "NAMA PRODUK", align: "left", className: "px-2.5 sm:px-4" },
+    { label: "STOK", align: "center", className: "w-16 sm:w-20 px-1 sm:px-3 text-center" },
+    { label: "HARGA JUAL", align: "right", className: "w-28 sm:w-36 px-2 sm:px-4 text-right" },
+    { label: "AKSI", align: "center", className: "w-28 sm:w-36 px-1 sm:px-3 text-center" },
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-gray-200">
-        <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
-            <Package className="w-5 h-5 text-blue-600" />
-            Master Produk & Inventaris Optik
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Katalog frame kacamata, lensa optik ber-index, serta aksesori dan cairan pembersih
-          </p>
-        </div>
-
-        {/* Action Button Group */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {/* Export Excel Button */}
-          <button
-            type="button"
-            onClick={handleExportProducts}
-            disabled={isLoading || isExporting}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
-            title="Download seluruh data katalog produk berformat Microsoft Excel (.xlsx)"
-          >
-            {isExporting ? (
-              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-            ) : (
-              <FileSpreadsheet className="w-4 h-4 shrink-0" />
-            )}
-            <span>Export Excel</span>
-          </button>
-
-          {/* Import Masal Button */}
-          <button
-            type="button"
-            onClick={() => setIsImportModalOpen(true)}
-            disabled={isLoading}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
-            title="Unggah file Excel/CSV untuk menambah atau memperbarui banyak produk sekaligus"
-          >
-            <FileUp className="w-4 h-4 shrink-0" />
-            <span>Import Masal</span>
-          </button>
-
-          {/* Tambah Produk Button */}
-          <button
-            type="button"
-            onClick={handleOpenCreate}
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4 shrink-0" />
-            <span>Tambah Produk Baru</span>
-          </button>
-        </div>
+    <div className="space-y-3.5 sm:space-y-5">
+      {/* Search Input Bar (Matching Screenshot) */}
+      <div className="relative w-full">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          placeholder="Cari Nama, Barcode, Ukuran..."
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+          className="w-full pl-10 pr-4 py-2.5 text-xs bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs placeholder:text-gray-400"
+        />
       </div>
 
-      {/* Toolbar Filter */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto flex-1">
-          <div className="relative w-full sm:w-80">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Cari SKU, barcode, nama produk, brand..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-2 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
-            />
-          </div>
-
-          <select
-            value={categoryFilter}
-            onChange={(e) => {
-              setCategoryFilter(e.target.value);
-              setPage(1);
-            }}
-            className="w-full sm:w-auto px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
-          >
-            <option value="">Semua Kategori</option>
-            <option value="Frame">Frame Kacamata</option>
-            <option value="Lensa">Lensa Optik</option>
-            <option value="Aksesori">Aksesori & Cairan</option>
-          </select>
-        </div>
-
-        <div className="text-xs text-gray-500">
-          Total Katalog: <span className="font-bold text-gray-800">{totalItems}</span> item
-        </div>
+      {/* Category Dropdown (Matching Screenshot) */}
+      <div className="relative w-full">
+        <select
+          value={categoryFilter}
+          onChange={(e) => {
+            setCategoryFilter(e.target.value);
+            setPage(1);
+          }}
+          className="w-full px-3.5 py-2.5 text-xs bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-700 shadow-2xs appearance-none cursor-pointer pr-10"
+        >
+          <option value="">Semua Jenis</option>
+          <option value="Frame">Frame Kacamata</option>
+          <option value="Lensa">Lensa Optik</option>
+          <option value="Aksesori">Aksesori & Cairan</option>
+          <option value="Lensa Kontak">Lensa Kontak</option>
+        </select>
+        <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
       </div>
 
-      {/* Table */}
+      {/* 4 Action Buttons Grid (Print, Export, Import, Tambah) - Matching Screenshot */}
+      <div className="grid grid-cols-4 gap-2">
+        {/* 1. Print Button */}
+        <button
+          type="button"
+          onClick={handlePrintCatalog}
+          className="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-slate-800 hover:bg-slate-900 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
+          title="Cetak katalog & inventaris produk"
+        >
+          <Printer className="w-3.5 h-3.5 shrink-0" />
+          <span>Print</span>
+        </button>
+
+        {/* 2. Export Button */}
+        <button
+          type="button"
+          onClick={handleExportProducts}
+          disabled={isLoading || isExporting}
+          className="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-white hover:bg-emerald-50 active:scale-[0.98] text-emerald-600 border border-emerald-500 rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+          title="Download data produk format Excel"
+        >
+          {isExporting ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <FileSpreadsheet className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+          )}
+          <span>Export</span>
+        </button>
+
+        {/* 3. Import Button */}
+        <button
+          type="button"
+          onClick={() => setIsImportModalOpen(true)}
+          className="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-white hover:bg-cyan-50 active:scale-[0.98] text-cyan-600 border border-cyan-500 rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
+          title="Import masal produk dari Excel/CSV"
+        >
+          <Upload className="w-3.5 h-3.5 shrink-0 text-cyan-600" />
+          <span>Import</span>
+        </button>
+
+        {/* 4. Tambah Button */}
+        <button
+          type="button"
+          onClick={handleOpenCreate}
+          className="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+          title="Tambah produk baru"
+        >
+          <Plus className="w-3.5 h-3.5 shrink-0" />
+          <span>Tambah</span>
+        </button>
+      </div>
+
+      {/* Product Table (Compact, Anti-Overflow, Responsive) */}
       <Table
         headers={headers}
         isLoading={isLoading}
@@ -326,90 +466,86 @@ export default function ProductsPage() {
       >
         {products.map((p) => (
           <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
-            {/* Foto Produk */}
-            <td className="px-4 py-3 text-center">
-              <ProductImage
-                src={p.image}
-                name={p.name}
-                category={p.category}
-                className="w-12 h-12 rounded-xl mx-auto"
-                iconSize={15}
-              />
-            </td>
+            {/* 1. NAMA PRODUK + SIZE/SPEC + BARCODE & KATEGORI */}
+            <td className="px-2.5 sm:px-4 py-3 align-middle">
+              {/* Product Name */}
+              <div className="font-bold text-xs sm:text-sm text-gray-900 leading-tight">
+                {p.name}
+              </div>
 
-            {/* SKU & Barcode */}
-            <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">
-              <span className="font-bold text-blue-900 block">{p.sku}</span>
-              <span className="text-[10px] text-gray-400">{p.barcode || "-"}</span>
-            </td>
-
-            {/* Name & Brand */}
-            <td className="px-4 py-3 whitespace-nowrap">
-              <div className="font-bold text-xs text-gray-900">{p.name}</div>
-              {p.brand && <span className="text-[11px] text-gray-500">{p.brand}</span>}
-            </td>
-
-            {/* Category */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
-              <span
-                className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                  p.category === "Frame"
-                    ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
+              {/* Specifications / Size (e.g. Size: S:00 C:0 A:+175) */}
+              {p.specifications && (
+                <div className="text-[11px] font-semibold text-blue-600 mt-0.5 leading-tight">
+                  {p.specifications.toLowerCase().startsWith("size:")
+                    ? p.specifications
                     : p.category === "Lensa"
-                    ? "bg-cyan-50 text-cyan-700 border border-cyan-200"
-                    : "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                }`}
-              >
-                {p.category}
+                    ? `Size: ${p.specifications}`
+                    : p.specifications}
+                </div>
+              )}
+
+              {/* Barcode & Category Badges (Matching Screenshot) */}
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium text-gray-600 bg-gray-50 border border-gray-200">
+                  <Barcode className="w-3 h-3 text-gray-400" />
+                  <span>{p.barcode || p.sku}</span>
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold text-white bg-slate-600">
+                  {p.category}
+                </span>
+                {p.brand && (
+                  <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-gray-500 bg-gray-100">
+                    {p.brand}
+                  </span>
+                )}
+              </div>
+            </td>
+
+            {/* 2. STOK (Blue Rounded Pill Badge) */}
+            <td className="px-1 sm:px-3 py-3 text-center align-middle whitespace-nowrap">
+              <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold text-white bg-blue-600 shadow-2xs">
+                {p.stock}
               </span>
             </td>
 
-            {/* Cost Price */}
-            <td className="px-4 py-3 text-right whitespace-nowrap text-xs text-gray-500">
-              {formatRupiah(p.cost_price)}
-            </td>
-
-            {/* Selling Price */}
-            <td className="px-4 py-3 text-right whitespace-nowrap text-xs font-bold text-gray-900">
-              {formatRupiah(p.selling_price)}
-            </td>
-
-            {/* Stock */}
-            <td className="px-4 py-3 text-center whitespace-nowrap text-xs font-bold">
-              <span
-                className={`inline-block px-2 py-0.5 rounded ${
-                  p.stock <= 5
-                    ? "bg-red-50 text-red-700 font-extrabold"
-                    : "bg-gray-100 text-gray-800"
-                }`}
-              >
-                {p.stock} {p.unit}
+            {/* 3. HARGA JUAL (Green Bold Text) */}
+            <td className="px-2 sm:px-4 py-3 text-right align-middle whitespace-nowrap">
+              <span className="text-xs sm:text-sm font-extrabold text-emerald-600">
+                {formatRupiah(p.selling_price)}
               </span>
             </td>
 
-            {/* Specifications */}
-            <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 max-w-xs truncate">
-              {p.specifications || "-"}
-            </td>
+            {/* 4. AKSI (Eye, Edit, Trash Outline Buttons) */}
+            <td className="px-1 sm:px-3 py-3 text-center align-middle whitespace-nowrap">
+              <div className="inline-flex items-center justify-center gap-1 sm:gap-1.5">
+                {/* Detail (Eye) Button - Cyan outline */}
+                <button
+                  type="button"
+                  onClick={() => handleOpenDetail(p)}
+                  className="p-1.5 rounded-lg border border-cyan-400 text-cyan-600 bg-white hover:bg-cyan-50 active:scale-95 transition-all cursor-pointer shadow-2xs"
+                  title="Lihat Rincian Produk"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                </button>
 
-            {/* Actions */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
-              <div className="flex items-center justify-center gap-1">
+                {/* Edit (Pencil) Button - Amber outline */}
                 <button
                   type="button"
                   onClick={() => handleOpenEdit(p)}
-                  className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                  title="Edit Produk"
+                  className="p-1.5 rounded-lg border border-amber-400 text-amber-600 bg-white hover:bg-amber-50 active:scale-95 transition-all cursor-pointer shadow-2xs"
+                  title="Edit Data Produk"
                 >
-                  <Edit2 className="w-4 h-4" />
+                  <Edit2 className="w-3.5 h-3.5" />
                 </button>
+
+                {/* Delete (Trash) Button - Rose outline */}
                 <button
                   type="button"
                   onClick={() => setDeleteId(p.id)}
-                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  className="p-1.5 rounded-lg border border-rose-400 text-rose-600 bg-white hover:bg-rose-50 active:scale-95 transition-all cursor-pointer shadow-2xs"
                   title="Hapus Produk"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
             </td>
@@ -428,9 +564,123 @@ export default function ProductsPage() {
           setLimit(l);
           setPage(1);
         }}
+        itemName="produk"
+        compact={true}
       />
 
-      {/* Create / Edit Modal */}
+      {/* ==========================================
+          PRODUCT DETAIL MODAL (EYE ICON TRIGGER)
+         ========================================== */}
+      <Modal
+        isOpen={isDetailModalOpen}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedProduct(null);
+        }}
+        title="Rincian Master Produk"
+        subtitle={selectedProduct ? `${selectedProduct.category} • ${selectedProduct.sku}` : ""}
+        maxWidth="max-w-md"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <button
+              type="button"
+              onClick={() => {
+                setIsDetailModalOpen(false);
+                setSelectedProduct(null);
+              }}
+              className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer"
+            >
+              Tutup
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const prod = selectedProduct;
+                setIsDetailModalOpen(false);
+                handleOpenEdit(prod);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs cursor-pointer"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+              <span>Edit Produk</span>
+            </button>
+          </div>
+        }
+      >
+        {selectedProduct && (
+          <div className="space-y-4">
+            {/* Foto Produk Preview jika ada */}
+            {selectedProduct.image && (
+              <div className="w-full flex justify-center bg-gray-50 p-3 rounded-xl border border-gray-100">
+                <ProductImage
+                  src={selectedProduct.image}
+                  name={selectedProduct.name}
+                  category={selectedProduct.category}
+                  className="w-36 h-36 rounded-xl object-contain shadow-xs"
+                />
+              </div>
+            )}
+
+            {/* Nama Produk & Kategori */}
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold text-white bg-slate-600">
+                  {selectedProduct.category}
+                </span>
+                {selectedProduct.brand && (
+                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold text-gray-700 bg-gray-100 border border-gray-200">
+                    Merk: {selectedProduct.brand}
+                  </span>
+                )}
+              </div>
+              <h3 className="text-sm sm:text-base font-extrabold text-gray-900 mt-1.5">
+                {selectedProduct.name}
+              </h3>
+              {selectedProduct.specifications && (
+                <p className="text-xs font-semibold text-blue-600 mt-0.5">
+                  Ukuran / Spesifikasi: {selectedProduct.specifications}
+                </p>
+              )}
+            </div>
+
+            {/* Detailed Grid */}
+            <div className="grid grid-cols-2 gap-3 text-xs bg-gray-50/80 p-3.5 rounded-xl border border-gray-200">
+              <div>
+                <span className="text-gray-400 block text-[10px] font-bold uppercase">SKU Produk</span>
+                <span className="font-mono font-bold text-gray-800">{selectedProduct.sku}</span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[10px] font-bold uppercase">Barcode Fisik</span>
+                <span className="font-mono font-bold text-gray-800">{selectedProduct.barcode || "-"}</span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[10px] font-bold uppercase">Harga Modal (HPP)</span>
+                <span className="font-bold text-gray-700">{formatRupiah(selectedProduct.cost_price)}</span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[10px] font-bold uppercase">Harga Jual</span>
+                <span className="font-extrabold text-emerald-600">{formatRupiah(selectedProduct.selling_price)}</span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[10px] font-bold uppercase">Sisa Stok</span>
+                <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold text-white bg-blue-600 mt-0.5">
+                  {selectedProduct.stock} {selectedProduct.unit}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[10px] font-bold uppercase">Estimasi Margin</span>
+                <span className="font-bold text-blue-700">
+                  {formatRupiah((selectedProduct.selling_price || 0) - (selectedProduct.cost_price || 0))}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ==========================================
+          CREATE / EDIT PRODUCT MODAL
+         ========================================== */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -442,7 +692,7 @@ export default function ProductsPage() {
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg"
+              className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer"
             >
               Batal
             </button>
@@ -450,7 +700,7 @@ export default function ProductsPage() {
               type="button"
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50"
+              className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50 cursor-pointer"
             >
               {isSubmitting ? "Menyimpan..." : isEditing ? "Simpan Perubahan" : "Simpan Produk"}
             </button>
@@ -511,6 +761,7 @@ export default function ProductsPage() {
                 <option value="Frame">Frame Kacamata</option>
                 <option value="Lensa">Lensa Optik</option>
                 <option value="Aksesori">Aksesori & Cairan</option>
+                <option value="Lensa Kontak">Lensa Kontak</option>
               </select>
             </div>
             <div>
@@ -523,6 +774,19 @@ export default function ProductsPage() {
                 placeholder="Ray-Ban, Essilor, Moscot..."
               />
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-gray-700 block mb-1">
+              Ukuran / Spesifikasi (Misal: S:00 C:0 A:+175)
+            </label>
+            <input
+              type="text"
+              value={formData.specifications}
+              onChange={(e) => setFormData({ ...formData, specifications: e.target.value })}
+              className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              placeholder="Size: S:00 C:0 A:+175 / Single Vision Index 1.56"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

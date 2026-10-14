@@ -4,13 +4,13 @@ import {
   Search,
   Printer,
   Eye,
-  CreditCard,
-  CheckCircle2,
-  AlertCircle,
-  FileText,
   Calendar,
   DollarSign,
-  User,
+  Pencil,
+  Trash2,
+  Plus,
+  Minus,
+  Package,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
@@ -20,6 +20,7 @@ import { useDebounce } from "@/hooks/useDebounce";
 import Table from "@/components/common/Table";
 import Pagination from "@/components/common/Pagination";
 import Modal from "@/components/common/Modal";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ReceiptPrintModal from "@/components/print/ReceiptPrintModal";
 
 export default function TransactionsPage() {
@@ -51,9 +52,42 @@ export default function TransactionsPage() {
   const [payNotes, setPayNotes] = useState("");
   const [isSubmittingPay, setIsSubmittingPay] = useState(false);
 
+  // Lists for Editing
+  const [customers, setCustomers] = useState([]);
+  const [employees, setEmployees] = useState([]);
+
+  // Delete State
+  const [deleteTrx, setDeleteTrx] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Edit Modal State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [editFormData, setEditFormData] = useState(null);
+  const [customerRxOptions, setCustomerRxOptions] = useState([]);
+
   useEffect(() => {
     fetchTransactions();
+    loadCustomersAndEmployees();
   }, [page, limit, debouncedSearch, statusFilter]);
+
+  const loadCustomersAndEmployees = async () => {
+    try {
+      const [cRes, eRes] = await Promise.allSettled([
+        request.get(API_ENDPOINTS.CUSTOMERS.LIST, { limit: 100 }),
+        request.get(API_ENDPOINTS.EMPLOYEES.LIST, { limit: 100 }),
+      ]);
+      if (cRes.status === "fulfilled" && cRes.value?.data) {
+        setCustomers(cRes.value.data);
+      }
+      if (eRes.status === "fulfilled" && eRes.value?.data) {
+        setEmployees(eRes.value.data);
+      }
+    } catch (err) {
+      console.error("Gagal memuat master opsi:", err);
+    }
+  };
 
   const fetchTransactions = async () => {
     setIsLoading(true);
@@ -174,6 +208,311 @@ export default function TransactionsPage() {
       toast.error(err.message || "Gagal memproses pelunasan");
     } finally {
       setIsSubmittingPay(false);
+    }
+  };
+
+  // Open Edit Transaction Modal
+  const handleOpenEdit = async (trx) => {
+    setIsLoadingDetail(true);
+    try {
+      if (customers.length === 0 || employees.length === 0) {
+        await loadCustomersAndEmployees();
+      }
+
+      const res = await request.get(API_ENDPOINTS.TRANSACTIONS.DETAIL(trx.id));
+      const data = res?.data || trx;
+
+      // Load customer's prescriptions
+      let rxOptions = [];
+      if (data.customer_id) {
+        try {
+          const rxRes = await request.get(API_ENDPOINTS.PRESCRIPTIONS.LIST, {
+            customer_id: data.customer_id,
+            limit: 50,
+          });
+          if (rxRes?.data) {
+            rxOptions = rxRes.data;
+          }
+        } catch (rxErr) {
+          console.error("Gagal memuat resep pelanggan:", rxErr);
+        }
+      }
+      setCustomerRxOptions(rxOptions);
+
+      setEditFormData({
+        id: data.id,
+        invoice_number: data.invoice_number,
+        customer_id: data.customer_id,
+        employee_id: data.employee_id,
+        prescription_id: data.prescription_id || "",
+        completion_estimate: data.completion_estimate
+          ? data.completion_estimate.slice(0, 10)
+          : "",
+        transaction_date: data.transaction_date || "",
+        payment_status: data.payment_status || "Lunas",
+        payment_method: data.payment_method || "Tunai",
+        subtotal: Number(data.subtotal) || 0,
+        discount_amount: Number(data.discount_amount) || 0,
+        bpjs_subsidy: Number(data.bpjs_subsidy) || 0,
+        grand_total: Number(data.grand_total) || 0,
+        paid_amount: Number(data.paid_amount) || 0,
+        remaining_amount: Number(data.remaining_amount) || 0,
+        notes: data.notes || "",
+        items: (data.items || []).map((it) => ({
+          id: it.id,
+          product_id: it.product_id,
+          product_name: it.product_name,
+          category: it.category,
+          price: Number(it.price) || 0,
+          quantity: Number(it.quantity) || 1,
+          discount: Number(it.discount) || 0,
+          total_price: Number(it.total_price) || 0,
+          notes: it.notes || "",
+        })),
+      });
+
+      setIsEditModalOpen(true);
+    } catch (err) {
+      toast.error("Gagal memuat data transaksi untuk diedit");
+    } finally {
+      setIsLoadingDetail(false);
+    }
+  };
+
+  const handleCustomerChange = async (newCustomerId) => {
+    setEditFormData((prev) => ({
+      ...prev,
+      customer_id: newCustomerId,
+      prescription_id: "",
+    }));
+
+    if (!newCustomerId) {
+      setCustomerRxOptions([]);
+      return;
+    }
+
+    try {
+      const res = await request.get(API_ENDPOINTS.PRESCRIPTIONS.LIST, {
+        customer_id: newCustomerId,
+        limit: 50,
+      });
+      if (res?.data) {
+        setCustomerRxOptions(res.data);
+        if (res.data.length > 0) {
+          setEditFormData((prev) => ({
+            ...prev,
+            prescription_id: res.data[0].id,
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Gagal memuat rekam medis pasien:", err);
+    }
+  };
+
+  const updateItemQty = (index, delta) => {
+    setEditFormData((prev) => {
+      const newItems = [...prev.items];
+      const currentItem = newItems[index];
+      const newQty = Math.max(1, currentItem.quantity + delta);
+      const unitPrice = Math.max(0, currentItem.price - currentItem.discount);
+      newItems[index] = {
+        ...currentItem,
+        quantity: newQty,
+        total_price: unitPrice * newQty,
+      };
+
+      const newSubtotal = newItems.reduce((acc, it) => acc + it.total_price, 0);
+      const newGrandTotal = Math.max(
+        0,
+        newSubtotal - prev.discount_amount - prev.bpjs_subsidy
+      );
+      let newPaid = prev.paid_amount;
+      if (prev.payment_status === "Lunas") {
+        newPaid = newGrandTotal;
+      }
+      const newRemaining = Math.max(0, newGrandTotal - newPaid);
+
+      return {
+        ...prev,
+        items: newItems,
+        subtotal: newSubtotal,
+        grand_total: newGrandTotal,
+        paid_amount: newPaid,
+        remaining_amount: newRemaining,
+      };
+    });
+  };
+
+  const removeItem = (index) => {
+    setEditFormData((prev) => {
+      if (prev.items.length <= 1) {
+        toast.error("Transaksi harus memiliki minimal 1 produk");
+        return prev;
+      }
+      const newItems = prev.items.filter((_, i) => i !== index);
+      const newSubtotal = newItems.reduce((acc, it) => acc + it.total_price, 0);
+      const newGrandTotal = Math.max(
+        0,
+        newSubtotal - prev.discount_amount - prev.bpjs_subsidy
+      );
+      let newPaid = prev.paid_amount;
+      if (prev.payment_status === "Lunas") {
+        newPaid = newGrandTotal;
+      }
+      const newRemaining = Math.max(0, newGrandTotal - newPaid);
+
+      return {
+        ...prev,
+        items: newItems,
+        subtotal: newSubtotal,
+        grand_total: newGrandTotal,
+        paid_amount: newPaid,
+        remaining_amount: newRemaining,
+      };
+    });
+  };
+
+  const handleDiscountOrBpjsChange = (field, val) => {
+    const num = Math.max(0, Number(val) || 0);
+    setEditFormData((prev) => {
+      const newDiscount = field === "discount_amount" ? num : prev.discount_amount;
+      const newBpjs = field === "bpjs_subsidy" ? num : prev.bpjs_subsidy;
+      const newGrandTotal = Math.max(0, prev.subtotal - newDiscount - newBpjs);
+      let newPaid = prev.paid_amount;
+      if (prev.payment_status === "Lunas") {
+        newPaid = newGrandTotal;
+      }
+      const newRemaining = Math.max(0, newGrandTotal - newPaid);
+
+      return {
+        ...prev,
+        [field]: num,
+        grand_total: newGrandTotal,
+        paid_amount: newPaid,
+        remaining_amount: newRemaining,
+      };
+    });
+  };
+
+  const handleStatusChange = (status) => {
+    setEditFormData((prev) => {
+      let newPaid = prev.paid_amount;
+      let newRemaining = prev.remaining_amount;
+
+      if (status === "Lunas") {
+        newPaid = prev.grand_total;
+        newRemaining = 0;
+      } else if (status === "Belum Lunas") {
+        newPaid = 0;
+        newRemaining = prev.grand_total;
+      } else if (status === "DP") {
+        if (newPaid >= prev.grand_total || newPaid <= 0) {
+          newPaid = Math.round(prev.grand_total / 2);
+        }
+        newRemaining = Math.max(0, prev.grand_total - newPaid);
+      }
+
+      return {
+        ...prev,
+        payment_status: status,
+        paid_amount: newPaid,
+        remaining_amount: newRemaining,
+      };
+    });
+  };
+
+  const handlePaidAmountChange = (val) => {
+    const num = Math.max(0, Number(val) || 0);
+    setEditFormData((prev) => {
+      const newRemaining = Math.max(0, prev.grand_total - num);
+      let newStatus = prev.payment_status;
+      if (newRemaining <= 0) {
+        newStatus = "Lunas";
+      } else if (num > 0) {
+        newStatus = "DP";
+      } else {
+        newStatus = "Belum Lunas";
+      }
+      return {
+        ...prev,
+        paid_amount: num,
+        remaining_amount: newRemaining,
+        payment_status: newStatus,
+      };
+    });
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editFormData) return;
+
+    if (!editFormData.customer_id) {
+      toast.error("Silakan pilih Pelanggan!");
+      return;
+    }
+    if (!editFormData.employee_id) {
+      toast.error("Silakan pilih Kasir / Petugas!");
+      return;
+    }
+    if (editFormData.items.length === 0) {
+      toast.error("Transaksi harus memiliki minimal 1 item produk!");
+      return;
+    }
+
+    setIsSubmittingEdit(true);
+    try {
+      const payload = {
+        customer_id: Number(editFormData.customer_id),
+        employee_id: Number(editFormData.employee_id),
+        prescription_id: editFormData.prescription_id ? Number(editFormData.prescription_id) : null,
+        completion_estimate: editFormData.completion_estimate || null,
+        subtotal: editFormData.subtotal,
+        discount_amount: editFormData.discount_amount,
+        bpjs_subsidy: editFormData.bpjs_subsidy,
+        grand_total: editFormData.grand_total,
+        paid_amount: editFormData.paid_amount,
+        payment_status: editFormData.payment_status,
+        payment_method: editFormData.payment_method,
+        remaining_amount: editFormData.remaining_amount,
+        dp_amount: editFormData.payment_status === "DP" ? editFormData.paid_amount : 0,
+        notes: editFormData.notes,
+        items: editFormData.items,
+      };
+
+      const res = await request.put(
+        API_ENDPOINTS.TRANSACTIONS.UPDATE(editFormData.id),
+        payload
+      );
+
+      if (res?.success) {
+        toast.success("Transaksi berhasil diperbarui");
+        setIsEditModalOpen(false);
+        fetchTransactions();
+      }
+    } catch (err) {
+      toast.error(err.message || "Gagal memperbarui transaksi");
+    } finally {
+      setIsSubmittingEdit(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTrx) return;
+    setIsDeleting(true);
+    try {
+      const res = await request.delete(
+        API_ENDPOINTS.TRANSACTIONS.DELETE(deleteTrx.id)
+      );
+      if (res?.success) {
+        toast.success("Transaksi berhasil dihapus dan stok barang telah dikembalikan");
+        setDeleteTrx(null);
+        fetchTransactions();
+      }
+    } catch (err) {
+      toast.error(err.message || "Gagal menghapus transaksi");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -348,10 +687,30 @@ export default function TransactionsPage() {
                 <button
                   type="button"
                   onClick={() => handleOpenPrint(trx)}
-                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                   title="Cetak Struk Nota"
                 >
                   <Printer className="w-4 h-4" />
+                </button>
+
+                {/* Edit Transaction */}
+                <button
+                  type="button"
+                  onClick={() => handleOpenEdit(trx)}
+                  className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                  title="Edit Transaksi"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+
+                {/* Delete Transaction */}
+                <button
+                  type="button"
+                  onClick={() => setDeleteTrx(trx)}
+                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                  title="Hapus Transaksi"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </td>
@@ -545,6 +904,335 @@ export default function TransactionsPage() {
         onClose={() => setIsPrintModalOpen(false)}
         transaction={selectedTrxForPrint}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={!!deleteTrx}
+        onClose={() => setDeleteTrx(null)}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleting}
+        title="Hapus Transaksi Penjualan"
+        message={`Apakah Anda yakin ingin menghapus transaksi nota ${deleteTrx?.invoice_number}? Stok seluruh produk dalam transaksi ini akan dikembalikan ke gudang secara otomatis.`}
+        confirmText="Ya, Hapus Transaksi"
+      />
+
+      {/* Edit Transaction Modal */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        title="Edit Transaksi Penjualan"
+        subtitle={`Nota: ${editFormData?.invoice_number} • Total: ${formatRupiah(editFormData?.grand_total || 0)}`}
+        maxWidth="max-w-4xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setIsEditModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveEdit}
+              disabled={isSubmittingEdit}
+              className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              {isSubmittingEdit ? "Menyimpan Perubahan..." : "Simpan Perubahan"}
+            </button>
+          </>
+        }
+      >
+        {editFormData && (
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            {/* Top Stat Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+                <span className="text-[10px] text-gray-500 uppercase font-bold block">No Nota</span>
+                <span className="text-xs font-mono font-bold text-gray-900">{editFormData.invoice_number}</span>
+              </div>
+              <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg">
+                <span className="text-[10px] text-blue-600 uppercase font-bold block">Total Akhir</span>
+                <span className="text-xs font-bold text-blue-900">{formatRupiah(editFormData.grand_total)}</span>
+              </div>
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg">
+                <span className="text-[10px] text-emerald-600 uppercase font-bold block">Terbayar</span>
+                <span className="text-xs font-bold text-emerald-900">{formatRupiah(editFormData.paid_amount)}</span>
+              </div>
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                <span className="text-[10px] text-amber-600 uppercase font-bold block">Sisa Piutang</span>
+                <span className="text-xs font-bold text-amber-900">{formatRupiah(editFormData.remaining_amount)}</span>
+              </div>
+            </div>
+
+            {/* General Info Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Pelanggan <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={editFormData.customer_id}
+                  onChange={(e) => handleCustomerChange(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
+                >
+                  <option value="">-- Pilih Pelanggan --</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.phone || c.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Kasir / Petugas <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={editFormData.employee_id}
+                  onChange={(e) =>
+                    setEditFormData((prev) => ({
+                      ...prev,
+                      employee_id: Number(e.target.value),
+                    }))
+                  }
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
+                >
+                  <option value="">-- Pilih Petugas --</option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} ({emp.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Rekam Medis (Resep)
+                </label>
+                <select
+                  value={editFormData.prescription_id}
+                  onChange={(e) =>
+                    setEditFormData((prev) => ({
+                      ...prev,
+                      prescription_id: e.target.value ? Number(e.target.value) : "",
+                    }))
+                  }
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
+                >
+                  <option value="">Tanpa Rekam Medis</option>
+                  {customerRxOptions.map((rx) => (
+                    <option key={rx.id} value={rx.id}>
+                      {formatDate(rx.exam_date)} • {rx.examiner_name} (PD: {rx.total_pd}mm)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Time & Payment Status Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Estimasi Selesai Lab
+                </label>
+                <input
+                  type="date"
+                  value={editFormData.completion_estimate}
+                  onChange={(e) =>
+                    setEditFormData((prev) => ({
+                      ...prev,
+                      completion_estimate: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Status Pembayaran <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={editFormData.payment_status}
+                  onChange={(e) => handleStatusChange(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold"
+                >
+                  <option value="Lunas">Lunas</option>
+                  <option value="DP">DP (Uang Muka)</option>
+                  <option value="Belum Lunas">Belum Lunas</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Metode Pembayaran
+                </label>
+                <select
+                  value={editFormData.payment_method}
+                  onChange={(e) =>
+                    setEditFormData((prev) => ({
+                      ...prev,
+                      payment_method: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
+                >
+                  <option value="Tunai">Tunai</option>
+                  <option value="Transfer Bank BCA">Transfer Bank BCA</option>
+                  <option value="Transfer Bank Mandiri">Transfer Bank Mandiri</option>
+                  <option value="Transfer Bank BNI/BRI">Transfer Bank BNI/BRI</option>
+                  <option value="QRIS">QRIS</option>
+                  <option value="Debit / Kartu Kredit">Debit / Kartu Kredit</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Items Table with Quantity and Price Adjustments */}
+            <div className="space-y-1.5 pt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                  <Package className="w-4 h-4 text-blue-600" />
+                  Daftar Produk Transaksi ({editFormData.items.length})
+                </span>
+                <span className="text-[11px] text-gray-500">
+                  Subtotal: <strong className="text-gray-900">{formatRupiah(editFormData.subtotal)}</strong>
+                </span>
+              </div>
+
+              <div className="border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
+                    <tr>
+                      <th className="p-2">Produk</th>
+                      <th className="p-2 text-right">Harga</th>
+                      <th className="p-2 text-center">Jumlah (Qty)</th>
+                      <th className="p-2 text-right">Total</th>
+                      <th className="p-2 text-center">Hapus</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {editFormData.items.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50/50">
+                        <td className="p-2">
+                          <p className="font-bold text-gray-900">{item.product_name}</p>
+                          <span className="inline-block text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded mt-0.5">
+                            {item.category}
+                          </span>
+                        </td>
+                        <td className="p-2 text-right font-mono">
+                          {formatRupiah(item.price - item.discount)}
+                        </td>
+                        <td className="p-2 text-center whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+                            <button
+                              type="button"
+                              onClick={() => updateItemQty(idx, -1)}
+                              disabled={item.quantity <= 1}
+                              className="p-1 hover:bg-white rounded text-gray-600 disabled:opacity-30 transition-colors"
+                              title="Kurangi 1"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="w-7 text-center font-bold text-xs">
+                              {item.quantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateItemQty(idx, 1)}
+                              className="p-1 hover:bg-white rounded text-gray-600 transition-colors"
+                              title="Tambah 1"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-gray-900">
+                          {formatRupiah(item.total_price)}
+                        </td>
+                        <td className="p-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => removeItem(idx)}
+                            className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                            title="Hapus produk dari nota"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Financial Adjustments Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Diskon Transaksi (Rp)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editFormData.discount_amount}
+                  onChange={(e) => handleDiscountOrBpjsChange("discount_amount", e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Subsidi BPJS (Rp)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editFormData.bpjs_subsidy}
+                  onChange={(e) => handleDiscountOrBpjsChange("bpjs_subsidy", e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Jumlah Terbayar (Rp)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editFormData.paid_amount}
+                  onChange={(e) => handlePaidAmountChange(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold text-emerald-700"
+                />
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="text-xs font-bold text-gray-700 block mb-1">
+                Catatan Transaksi
+              </label>
+              <textarea
+                rows={2}
+                value={editFormData.notes}
+                onChange={(e) =>
+                  setEditFormData((prev) => ({
+                    ...prev,
+                    notes: e.target.value,
+                  }))
+                }
+                placeholder="Catatan tambahan untuk kasir / pelanggan..."
+                className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }

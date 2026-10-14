@@ -25,6 +25,9 @@ import {
   exportReportToPdf,
   exportReportToExcel,
   printReportDocument,
+  exportCommissionReportToPdf,
+  exportCommissionReportToExcel,
+  printCommissionReportDocument,
   getPeriodLabel,
 } from "@/utils/reportExporter";
 
@@ -36,10 +39,16 @@ export default function ReportsPage() {
   const [reportData, setReportData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Scope: 'all' (Laporan Gabungan/Lengkap) or 'commission' (Khusus Komisi Pegawai)
+  const [exportScope, setExportScope] = useState("all");
+
   // Export Loading States
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isPrintingDoc, setIsPrintingDoc] = useState(false);
+  const [isExportingCommPdf, setIsExportingCommPdf] = useState(false);
+  const [isExportingCommExcel, setIsExportingCommExcel] = useState(false);
+  const [isPrintingCommDoc, setIsPrintingCommDoc] = useState(false);
 
   useEffect(() => {
     fetchReport();
@@ -70,11 +79,15 @@ export default function ReportsPage() {
       toast.error("Data laporan belum selesai dimuat");
       return;
     }
+    if (exportScope === "commission") {
+      handleExportCommPdf();
+      return;
+    }
     try {
       setIsExportingPdf(true);
       const periodLabel = getPeriodLabel(period, dateStart, dateEnd);
       const fileName = exportReportToPdf(reportData, periodLabel, settings);
-      toast.success(`Laporan PDF berhasil diunduh (${fileName})!`);
+      toast.success(`Laporan PDF Lengkap berhasil diunduh (${fileName})!`);
     } catch (err) {
       console.error("Gagal export PDF:", err);
       toast.error("Gagal membuat dokumen PDF: " + (err.message || ""));
@@ -88,11 +101,15 @@ export default function ReportsPage() {
       toast.error("Data laporan belum selesai dimuat");
       return;
     }
+    if (exportScope === "commission") {
+      handleExportCommExcel();
+      return;
+    }
     try {
       setIsExportingExcel(true);
       const periodLabel = getPeriodLabel(period, dateStart, dateEnd);
       const fileName = exportReportToExcel(reportData, periodLabel, settings);
-      toast.success(`Laporan Excel berhasil diunduh (${fileName})!`);
+      toast.success(`Laporan Excel Lengkap berhasil diunduh (${fileName})!`);
     } catch (err) {
       console.error("Gagal export Excel:", err);
       toast.error("Gagal membuat file Excel: " + (err.message || ""));
@@ -106,6 +123,10 @@ export default function ReportsPage() {
       toast.error("Data laporan belum selesai dimuat");
       return;
     }
+    if (exportScope === "commission") {
+      handlePrintCommReport();
+      return;
+    }
     try {
       setIsPrintingDoc(true);
       const periodLabel = getPeriodLabel(period, dateStart, dateEnd);
@@ -116,6 +137,61 @@ export default function ReportsPage() {
       toast.error("Gagal mencetak dokumen: " + (err.message || ""));
     } finally {
       setIsPrintingDoc(false);
+    }
+  };
+
+  // Dedicated Commission Export Handlers
+  const handleExportCommPdf = () => {
+    if (!reportData) {
+      toast.error("Data laporan belum selesai dimuat");
+      return;
+    }
+    try {
+      setIsExportingCommPdf(true);
+      const periodLabel = getPeriodLabel(period, dateStart, dateEnd);
+      const fileName = exportCommissionReportToPdf(reportData, periodLabel, settings);
+      toast.success(`Laporan Komisi PDF berhasil diunduh (${fileName})!`);
+    } catch (err) {
+      console.error("Gagal export PDF Komisi:", err);
+      toast.error("Gagal membuat PDF Komisi: " + (err.message || ""));
+    } finally {
+      setIsExportingCommPdf(false);
+    }
+  };
+
+  const handleExportCommExcel = () => {
+    if (!reportData) {
+      toast.error("Data laporan belum selesai dimuat");
+      return;
+    }
+    try {
+      setIsExportingCommExcel(true);
+      const periodLabel = getPeriodLabel(period, dateStart, dateEnd);
+      const fileName = exportCommissionReportToExcel(reportData, periodLabel, settings);
+      toast.success(`Laporan Komisi Excel berhasil diunduh (${fileName})!`);
+    } catch (err) {
+      console.error("Gagal export Excel Komisi:", err);
+      toast.error("Gagal membuat Excel Komisi: " + (err.message || ""));
+    } finally {
+      setIsExportingCommExcel(false);
+    }
+  };
+
+  const handlePrintCommReport = () => {
+    if (!reportData) {
+      toast.error("Data laporan belum selesai dimuat");
+      return;
+    }
+    try {
+      setIsPrintingCommDoc(true);
+      const periodLabel = getPeriodLabel(period, dateStart, dateEnd);
+      printCommissionReportDocument(reportData, periodLabel, settings);
+      toast.success("Membuka dialog cetak khusus Laporan Komisi Pegawai...");
+    } catch (err) {
+      console.error("Gagal mencetak dokumen komisi:", err);
+      toast.error("Gagal mencetak dokumen komisi: " + (err.message || ""));
+    } finally {
+      setIsPrintingCommDoc(false);
     }
   };
 
@@ -161,54 +237,94 @@ export default function ReportsPage() {
           </p>
         </div>
 
-        {/* Action Buttons: Export Excel, Export PDF, Cetak Dokumen */}
+        {/* Action Buttons: Scope Toggle & Export Options */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Scope Selector: All vs Commission Only */}
+          <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setExportScope("all")}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                exportScope === "all"
+                  ? "bg-white text-blue-700 shadow-2xs font-bold"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+              title="Laporan Lengkap: Ringkasan Finansial, Penjualan Kategori & Komisi Pegawai"
+            >
+              Laporan Lengkap
+            </button>
+            <button
+              type="button"
+              onClick={() => setExportScope("commission")}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                exportScope === "commission"
+                  ? "bg-white text-blue-700 shadow-2xs font-bold"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+              title="Laporan Terpisah: Khusus Perhitungan Komisi Pegawai & RO"
+            >
+              Khusus Komisi Pegawai
+            </button>
+          </div>
+
           {/* Export Excel Button */}
           <button
             type="button"
             onClick={handleExportExcel}
-            disabled={isLoading || isExportingExcel || !reportData}
+            disabled={isLoading || isExportingExcel || isExportingCommExcel || !reportData}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
-            title="Download laporan dalam format spreadsheet Microsoft Excel (.xlsx)"
+            title={
+              exportScope === "commission"
+                ? "Download file Excel khusus perhitungan komisi pegawai"
+                : "Download laporan lengkap dalam format spreadsheet Microsoft Excel (.xlsx)"
+            }
           >
-            {isExportingExcel ? (
+            {isExportingExcel || isExportingCommExcel ? (
               <Loader2 className="w-4 h-4 animate-spin shrink-0" />
             ) : (
               <FileSpreadsheet className="w-4 h-4 shrink-0" />
             )}
-            <span>Export Excel</span>
+            <span>{exportScope === "commission" ? "Excel Komisi" : "Export Excel"}</span>
           </button>
 
           {/* Export PDF Button */}
           <button
             type="button"
             onClick={handleExportPdf}
-            disabled={isLoading || isExportingPdf || !reportData}
+            disabled={isLoading || isExportingPdf || isExportingCommPdf || !reportData}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
-            title="Download dokumen resmi laporan keuangan dalam format PDF A4"
+            title={
+              exportScope === "commission"
+                ? "Download dokumen PDF A4 khusus perhitungan komisi pegawai"
+                : "Download dokumen resmi laporan keuangan lengkap dalam format PDF A4"
+            }
           >
-            {isExportingPdf ? (
+            {isExportingPdf || isExportingCommPdf ? (
               <Loader2 className="w-4 h-4 animate-spin shrink-0" />
             ) : (
               <FileText className="w-4 h-4 shrink-0" />
             )}
-            <span>Export PDF</span>
+            <span>{exportScope === "commission" ? "PDF Komisi" : "Export PDF"}</span>
           </button>
 
           {/* Print Clean Document Button */}
           <button
             type="button"
             onClick={handlePrintReport}
-            disabled={isLoading || isPrintingDoc || !reportData}
+            disabled={isLoading || isPrintingDoc || isPrintingCommDoc || !reportData}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-gray-50 active:scale-[0.98] text-gray-700 border border-gray-200 rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer disabled:opacity-50"
-            title="Cetak langsung dokumen laporan resmi (tanpa elemen navigasi website)"
+            title={
+              exportScope === "commission"
+                ? "Cetak langsung dokumen resmi khusus komisi pegawai (bebas elemen navigasi)"
+                : "Cetak langsung dokumen laporan resmi lengkap (bebas elemen navigasi)"
+            }
           >
-            {isPrintingDoc ? (
+            {isPrintingDoc || isPrintingCommDoc ? (
               <Loader2 className="w-4 h-4 animate-spin text-gray-600 shrink-0" />
             ) : (
               <Printer className="w-4 h-4 text-gray-600 shrink-0" />
             )}
-            <span>Cetak Dokumen</span>
+            <span>{exportScope === "commission" ? "Cetak Komisi" : "Cetak Dokumen"}</span>
           </button>
         </div>
       </div>
@@ -427,10 +543,64 @@ export default function ReportsPage() {
 
       {/* Breakdown 2: Staff Commission Table (SRS Modul 6) */}
       <div className="space-y-2">
-        <h3 className="text-sm font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
-          <UserCheck className="w-4 h-4 text-blue-600" />
-          Laporan Perhitungan Komisi Pegawai, Kasir & Refraksionis (RO)
-        </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white p-3 rounded-xl border border-gray-200 shadow-2xs">
+          <div>
+            <h3 className="text-sm font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
+              <UserCheck className="w-4 h-4 text-blue-600" />
+              Laporan Perhitungan Komisi Pegawai, Kasir & Refraksionis (RO)
+            </h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              Rincian komisi berdasarkan omzet nota penjualan dan skema insentif per pegawai
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={handleExportCommExcel}
+              disabled={isLoading || isExportingCommExcel || !reportData}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+              title="Download Excel khusus laporan komisi pegawai"
+            >
+              {isExportingCommExcel ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+              )}
+              <span>Excel Komisi</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportCommPdf}
+              disabled={isLoading || isExportingCommPdf || !reportData}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+              title="Download dokumen PDF khusus laporan komisi pegawai"
+            >
+              {isExportingCommPdf ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <FileText className="w-3.5 h-3.5" />
+              )}
+              <span>PDF Komisi</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrintCommReport}
+              disabled={isLoading || isPrintingCommDoc || !reportData}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+              title="Cetak langsung dokumen resmi khusus komisi pegawai (bebas navigasi web)"
+            >
+              {isPrintingCommDoc ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Printer className="w-3.5 h-3.5" />
+              )}
+              <span>Cetak Komisi Terpisah</span>
+            </button>
+          </div>
+        </div>
         <Table
           headers={commissionHeaders}
           isLoading={isLoading}
