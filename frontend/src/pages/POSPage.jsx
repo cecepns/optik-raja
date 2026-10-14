@@ -501,12 +501,17 @@ export default function POSPage() {
           <div className="p-3 sm:p-4 bg-slate-50/50">
             {isLoadingProducts ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="bg-white rounded-xl border border-gray-200 animate-pulse overflow-hidden">
-                    <div className="h-28 sm:h-32 bg-gray-100" />
-                    <div className="p-2.5 space-y-2">
-                      <div className="h-3 bg-gray-100 rounded w-3/4" />
-                      <div className="h-3 bg-gray-100 rounded w-1/2" />
+                {Array.from({ length: Math.min(productLimit, 6) }).map((_, i) => (
+                  <div key={i} className="bg-white rounded-xl border border-gray-200 animate-pulse p-3 sm:p-3.5 space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <div className="h-3.5 bg-gray-200 rounded w-1/3" />
+                      <div className="h-3 bg-gray-100 rounded w-1/4" />
+                    </div>
+                    <div className="h-4 bg-gray-200 rounded w-4/5" />
+                    <div className="h-3 bg-gray-100 rounded w-1/2" />
+                    <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+                      <div className="h-4 bg-gray-200 rounded w-1/3" />
+                      <div className="h-3.5 bg-gray-100 rounded w-1/5" />
                     </div>
                   </div>
                 ))}
@@ -569,7 +574,7 @@ export default function POSPage() {
             totalPages={productTotalPages}
             totalItems={productTotalItems}
             limit={productLimit}
-            limitOptions={[15, 30, 45, 60]}
+            limitOptions={[4, 8, 12, 15, 30, 45, 60]}
             onPageChange={(p) => {
               setProductPage(p);
               window.scrollTo({ top: 0, behavior: "smooth" });
