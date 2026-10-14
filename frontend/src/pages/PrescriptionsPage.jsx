@@ -203,6 +203,32 @@ export default function PrescriptionsPage() {
     setIsFormModalOpen(true);
   };
 
+  const handleMpdChange = (eye, val) => {
+    setFormData((prev) => {
+      const nextVal = val === "" ? "" : val;
+      const nextOd = eye === "od" ? nextVal : prev.od_mpd;
+      const nextOs = eye === "os" ? nextVal : prev.os_mpd;
+
+      const odNum = parseFloat(nextOd);
+      const osNum = parseFloat(nextOs);
+
+      let calculatedPd = "";
+      if (!isNaN(odNum) && !isNaN(osNum)) {
+        calculatedPd = Number((odNum + osNum).toFixed(1));
+      } else if (!isNaN(odNum)) {
+        calculatedPd = Number(odNum.toFixed(1));
+      } else if (!isNaN(osNum)) {
+        calculatedPd = Number(osNum.toFixed(1));
+      }
+
+      return {
+        ...prev,
+        [eye === "od" ? "od_mpd" : "os_mpd"]: nextVal,
+        total_pd: calculatedPd,
+      };
+    });
+  };
+
   const handleOpenEdit = (rx) => {
     setFormData({
       customer_id: rx.customer_id,
@@ -211,22 +237,27 @@ export default function PrescriptionsPage() {
       od_ucva: rx.od_ucva || "",
       od_sph: rx.od_sph || "0.00",
       od_cyl: rx.od_cyl || "0.00",
-      od_axis: rx.od_axis || 0,
+      od_axis: rx.od_axis ?? 0,
       od_bcva: rx.od_bcva || "6/6",
       od_add: rx.od_add || "0.00",
-      od_mpd: rx.od_mpd || 31.0,
+      od_mpd: rx.od_mpd !== undefined && rx.od_mpd !== null ? rx.od_mpd : 31.0,
       od_pv: rx.od_pv || "10°",
       od_sh: rx.od_sh || "18 mm",
       os_ucva: rx.os_ucva || "",
       os_sph: rx.os_sph || "0.00",
       os_cyl: rx.os_cyl || "0.00",
-      os_axis: rx.os_axis || 0,
+      os_axis: rx.os_axis ?? 0,
       os_bcva: rx.os_bcva || "6/6",
       os_add: rx.os_add || "0.00",
-      os_mpd: rx.os_mpd || 31.0,
+      os_mpd: rx.os_mpd !== undefined && rx.os_mpd !== null ? rx.os_mpd : 31.0,
       os_pv: rx.os_pv || "10°",
       os_sh: rx.os_sh || "18 mm",
-      total_pd: rx.total_pd || 62.0,
+      total_pd:
+        rx.total_pd !== undefined && rx.total_pd !== null
+          ? rx.total_pd
+          : rx.od_mpd && rx.os_mpd
+          ? Number((Number(rx.od_mpd) + Number(rx.os_mpd)).toFixed(1))
+          : 62.0,
       complaint_diagnose: rx.complaint_diagnose || "",
       notes: rx.notes || "",
     });
@@ -242,13 +273,22 @@ export default function PrescriptionsPage() {
       return;
     }
 
+    const payload = {
+      ...formData,
+      od_axis: formData.od_axis === "" ? 0 : Number(formData.od_axis),
+      os_axis: formData.os_axis === "" ? 0 : Number(formData.os_axis),
+      od_mpd: formData.od_mpd === "" ? null : Number(formData.od_mpd),
+      os_mpd: formData.os_mpd === "" ? null : Number(formData.os_mpd),
+      total_pd: formData.total_pd === "" ? null : Number(formData.total_pd),
+    };
+
     setIsSubmitting(true);
     try {
       if (isEditing) {
-        await request.put(API_ENDPOINTS.PRESCRIPTIONS.UPDATE(editId), formData);
+        await request.put(API_ENDPOINTS.PRESCRIPTIONS.UPDATE(editId), payload);
         toast.success("Rekam medis berhasil diperbarui");
       } else {
-        await request.post(API_ENDPOINTS.PRESCRIPTIONS.CREATE, formData);
+        await request.post(API_ENDPOINTS.PRESCRIPTIONS.CREATE, payload);
         toast.success("Rekam medis baru berhasil disimpan");
       }
       setIsFormModalOpen(false);
@@ -293,18 +333,18 @@ export default function PrescriptionsPage() {
             setSearch(e.target.value);
             setPage(1);
           }}
-          className="w-full pl-10 pr-4 py-2.5 text-xs bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs placeholder:text-gray-400"
+          className="w-full pl-10 pr-4 py-2.5 text-xs bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs placeholder:text-gray-400"
         />
       </div>
 
-      {/* 2. Three Action Buttons (Export Excel, Import Excel, + Input Rekam Medis) - Matching Screenshot */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* 2. Three Action Buttons (Export Excel, Import Excel, + Input Rekam Medis) */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {/* Export Excel Button (Dark Green) */}
         <button
           type="button"
           onClick={handleExportExcel}
           disabled={isLoading || isExporting}
-          className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+          className="h-11 flex items-center justify-center gap-1.5 px-2 sm:px-3 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.98] text-white rounded-xl text-[11px] sm:text-xs font-bold shadow-xs whitespace-nowrap transition-all cursor-pointer disabled:opacity-50"
           title="Download data rekam medis format Excel"
         >
           {isExporting ? (
@@ -312,37 +352,37 @@ export default function PrescriptionsPage() {
           ) : (
             <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
           )}
-          <span>Export Excel</span>
+          <span className="truncate">Export<span className="hidden sm:inline"> Excel</span></span>
         </button>
 
         {/* Import Excel Button (Amber / Orange) */}
         <button
           type="button"
           onClick={() => setIsImportModalOpen(true)}
-          className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-amber-500 hover:bg-amber-600 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+          className="h-11 flex items-center justify-center gap-1.5 px-2 sm:px-3 bg-amber-500 hover:bg-amber-600 active:scale-[0.98] text-white rounded-xl text-[11px] sm:text-xs font-bold shadow-xs whitespace-nowrap transition-all cursor-pointer"
           title="Import rekam medis pasien dari file Excel"
         >
           <Upload className="w-3.5 h-3.5 shrink-0" />
-          <span>Import Excel</span>
+          <span className="truncate">Import<span className="hidden sm:inline"> Excel</span></span>
         </button>
 
         {/* + Input Rekam Medis Button (Blue) */}
         <button
           type="button"
           onClick={handleOpenCreate}
-          className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+          className="h-11 flex items-center justify-center gap-1.5 px-2 sm:px-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-xl text-[11px] sm:text-xs font-bold shadow-xs whitespace-nowrap transition-all cursor-pointer"
           title="Catat rekam medis pasien baru"
         >
           <Plus className="w-3.5 h-3.5 shrink-0" />
-          <span>Input Rekam Medis</span>
+          <span className="truncate"><span className="hidden sm:inline">Input </span>Rekam Medis</span>
         </button>
       </div>
 
-      {/* 3. Date Range Filter Bar (Matching Screenshot) */}
-      <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs space-y-1.5">
-        <div className="flex items-center gap-2">
+      {/* 3. Date Range Filter Bar (Fixed Overflow & Reload Button) */}
+      <div className="bg-white p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border border-gray-200 shadow-2xs space-y-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Date Start */}
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-w-0">
             <input
               type="date"
               value={dateStart}
@@ -350,14 +390,16 @@ export default function PrescriptionsPage() {
                 setDateStart(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-800"
+              className="w-full min-w-0 px-2 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-800"
             />
           </div>
 
-          <span className="text-gray-400 text-xs font-medium shrink-0">s/d</span>
+          <span className="text-gray-400 text-xs font-semibold shrink-0 px-0.5">
+            s/d
+          </span>
 
           {/* Date End */}
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-w-0">
             <input
               type="date"
               value={dateEnd}
@@ -365,7 +407,7 @@ export default function PrescriptionsPage() {
                 setDateEnd(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-800"
+              className="w-full min-w-0 px-2 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-800"
             />
           </div>
 
@@ -373,21 +415,32 @@ export default function PrescriptionsPage() {
           <button
             type="button"
             onClick={handleResetFilter}
-            className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors cursor-pointer shrink-0"
+            className="p-1.5 sm:p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 border border-gray-200 rounded-lg transition-colors cursor-pointer shrink-0 shadow-2xs"
             title="Reset Rentang Tanggal"
           >
-            <RotateCcw className="w-4 h-4" />
+            <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
         </div>
 
         {/* Period Subtitle */}
-        <div className="text-[11px] text-gray-500">
-          Menampilkan periode:{" "}
-          <strong className="text-gray-700">
-            {dateStart && dateEnd
-              ? `${formatDate(dateStart)} — ${formatDate(dateEnd)}`
-              : "Semua Tanggal"}
-          </strong>
+        <div className="flex items-center justify-between text-[11px] text-gray-500 pt-0.5 border-t border-gray-100">
+          <span className="truncate">
+            Menampilkan periode:{" "}
+            <strong className="text-gray-700">
+              {dateStart && dateEnd
+                ? `${formatDate(dateStart)} — ${formatDate(dateEnd)}`
+                : "Semua Tanggal"}
+            </strong>
+          </span>
+          {(dateStart !== defaultDateStart || dateEnd !== defaultDateEnd) && (
+            <button
+              type="button"
+              onClick={handleResetFilter}
+              className="text-blue-600 hover:underline font-semibold shrink-0 cursor-pointer ml-2 text-[11px]"
+            >
+              Reset
+            </button>
+          )}
         </div>
       </div>
 
@@ -756,8 +809,13 @@ export default function PrescriptionsPage() {
                     type="number"
                     min="0"
                     max="180"
-                    value={formData.od_axis}
-                    onChange={(e) => setFormData({ ...formData, od_axis: Number(e.target.value) })}
+                    value={formData.od_axis ?? ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        od_axis: e.target.value === "" ? "" : e.target.value,
+                      })
+                    }
                     className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                     placeholder="90"
                   />
@@ -780,9 +838,9 @@ export default function PrescriptionsPage() {
                   <input
                     type="number"
                     step="0.5"
-                    value={formData.od_mpd}
-                    onChange={(e) => setFormData({ ...formData, od_mpd: Number(e.target.value) })}
-                    className="w-full px-2 py-1.5 text-xs text-center bg-white border border-gray-300 rounded-md"
+                    value={formData.od_mpd ?? ""}
+                    onChange={(e) => handleMpdChange("od", e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                     placeholder="31.0"
                   />
                 </div>
@@ -836,8 +894,13 @@ export default function PrescriptionsPage() {
                     type="number"
                     min="0"
                     max="180"
-                    value={formData.os_axis}
-                    onChange={(e) => setFormData({ ...formData, os_axis: Number(e.target.value) })}
+                    value={formData.os_axis ?? ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        os_axis: e.target.value === "" ? "" : e.target.value,
+                      })
+                    }
                     className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500"
                     placeholder="90"
                   />
@@ -860,9 +923,9 @@ export default function PrescriptionsPage() {
                   <input
                     type="number"
                     step="0.5"
-                    value={formData.os_mpd}
-                    onChange={(e) => setFormData({ ...formData, os_mpd: Number(e.target.value) })}
-                    className="w-full px-2 py-1.5 text-xs text-center bg-white border border-gray-300 rounded-md"
+                    value={formData.os_mpd ?? ""}
+                    onChange={(e) => handleMpdChange("os", e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500"
                     placeholder="31.0"
                   />
                 </div>
@@ -883,17 +946,30 @@ export default function PrescriptionsPage() {
           {/* Pupillary Distance & Catatan */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="text-xs font-bold text-gray-700 block mb-1">
-                Total PD (Pupillary Distance) mm
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-gray-700">
+                  Total PD (Pupillary Distance) mm
+                </label>
+                <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                  Auto (MPD R+L)
+                </span>
+              </div>
               <input
                 type="number"
                 step="0.5"
-                value={formData.total_pd}
-                onChange={(e) => setFormData({ ...formData, total_pd: Number(e.target.value) })}
-                className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold"
-                placeholder="62.0"
+                value={formData.total_pd ?? ""}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    total_pd: e.target.value === "" ? "" : e.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold text-blue-900"
+                placeholder="Contoh: 62.0 (Otomatis dari MPD Kanan + Kiri)"
               />
+              <p className="text-[10px] text-gray-500 mt-1">
+                * Otomatis terhitung dari MPD Kanan + Kiri, atau bisa diedit manual.
+              </p>
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs font-bold text-gray-700 block mb-1">

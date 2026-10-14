@@ -1154,6 +1154,10 @@ app.post('/api/prescriptions', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Customer, Nama Pemeriksa, dan Tanggal Periksa wajib diisi' });
     }
 
+    const calculatedTotalPd = (total_pd !== undefined && total_pd !== null && total_pd !== '')
+      ? total_pd
+      : (od_mpd && os_mpd ? Number((Number(od_mpd) + Number(os_mpd)).toFixed(1)) : 62.0);
+
     const [result] = await pool.query(
       `INSERT INTO prescriptions (
         customer_id, examiner_id, examiner_name, exam_date,
@@ -1163,9 +1167,9 @@ app.post('/api/prescriptions', async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         customer_id, examiner_id || null, examiner_name, exam_date,
-        od_ucva || '6/6', od_sph || '0.00', od_cyl || '0.00', od_axis || 0, od_bcva || '6/6', od_add || '0.00', od_mpd || 31.0, od_pv || '10°', od_sh || '18 mm',
-        os_ucva || '6/6', os_sph || '0.00', os_cyl || '0.00', os_axis || 0, os_bcva || '6/6', os_add || '0.00', os_mpd || 31.0, os_pv || '10°', os_sh || '18 mm',
-        total_pd || 62.0, complaint_diagnose || '', notes || ''
+        od_ucva || '6/6', od_sph || '0.00', od_cyl || '0.00', od_axis || 0, od_bcva || '6/6', od_add || '0.00', od_mpd !== undefined && od_mpd !== null ? od_mpd : 31.0, od_pv || '10°', od_sh || '18 mm',
+        os_ucva || '6/6', os_sph || '0.00', os_cyl || '0.00', os_axis || 0, os_bcva || '6/6', os_add || '0.00', os_mpd !== undefined && os_mpd !== null ? os_mpd : 31.0, os_pv || '10°', os_sh || '18 mm',
+        calculatedTotalPd, complaint_diagnose || '', notes || ''
       ]
     );
 
@@ -1205,6 +1209,10 @@ app.put('/api/prescriptions/:id', async (req, res) => {
       total_pd, complaint_diagnose, notes
     } = req.body;
 
+    const calculatedTotalPd = (total_pd !== undefined && total_pd !== null && total_pd !== '')
+      ? total_pd
+      : (od_mpd && os_mpd ? Number((Number(od_mpd) + Number(os_mpd)).toFixed(1)) : null);
+
     await pool.query(
       `UPDATE prescriptions SET 
         customer_id = ?, examiner_id = ?, examiner_name = ?, exam_date = ?,
@@ -1216,7 +1224,7 @@ app.put('/api/prescriptions/:id', async (req, res) => {
         customer_id, examiner_id || null, examiner_name, exam_date,
         od_ucva, od_sph, od_cyl, od_axis, od_bcva, od_add, od_mpd, od_pv, od_sh,
         os_ucva, os_sph, os_cyl, os_axis, os_bcva, os_add, os_mpd, os_pv, os_sh,
-        total_pd, complaint_diagnose, notes, id
+        calculatedTotalPd, complaint_diagnose, notes, id
       ]
     );
 
