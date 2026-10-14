@@ -11,19 +11,35 @@ import {
   UserCheck,
   PieChart,
   Layers,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
 import { API_ENDPOINTS } from "@/utils/endpoints";
 import { formatRupiah, formatDate } from "@/utils/formatters";
 import Table from "@/components/common/Table";
+import { useApp } from "@/context/AppContext";
+import {
+  exportReportToPdf,
+  exportReportToExcel,
+  printReportDocument,
+  getPeriodLabel,
+} from "@/utils/reportExporter";
 
 export default function ReportsPage() {
+  const { settings } = useApp();
   const [period, setPeriod] = useState("this_month"); // 'today', 'this_week', 'this_month', 'this_year', 'custom'
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
   const [reportData, setReportData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Export Loading States
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isPrintingDoc, setIsPrintingDoc] = useState(false);
 
   useEffect(() => {
     fetchReport();
@@ -49,8 +65,58 @@ export default function ReportsPage() {
     }
   };
 
+  const handleExportPdf = () => {
+    if (!reportData) {
+      toast.error("Data laporan belum selesai dimuat");
+      return;
+    }
+    try {
+      setIsExportingPdf(true);
+      const periodLabel = getPeriodLabel(period, dateStart, dateEnd);
+      const fileName = exportReportToPdf(reportData, periodLabel, settings);
+      toast.success(`Laporan PDF berhasil diunduh (${fileName})!`);
+    } catch (err) {
+      console.error("Gagal export PDF:", err);
+      toast.error("Gagal membuat dokumen PDF: " + (err.message || ""));
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (!reportData) {
+      toast.error("Data laporan belum selesai dimuat");
+      return;
+    }
+    try {
+      setIsExportingExcel(true);
+      const periodLabel = getPeriodLabel(period, dateStart, dateEnd);
+      const fileName = exportReportToExcel(reportData, periodLabel, settings);
+      toast.success(`Laporan Excel berhasil diunduh (${fileName})!`);
+    } catch (err) {
+      console.error("Gagal export Excel:", err);
+      toast.error("Gagal membuat file Excel: " + (err.message || ""));
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
   const handlePrintReport = () => {
-    window.print();
+    if (!reportData) {
+      toast.error("Data laporan belum selesai dimuat");
+      return;
+    }
+    try {
+      setIsPrintingDoc(true);
+      const periodLabel = getPeriodLabel(period, dateStart, dateEnd);
+      printReportDocument(reportData, periodLabel, settings);
+      toast.success("Membuka dialog cetak dokumen laporan resmi...");
+    } catch (err) {
+      console.error("Gagal mencetak dokumen:", err);
+      toast.error("Gagal mencetak dokumen: " + (err.message || ""));
+    } finally {
+      setIsPrintingDoc(false);
+    }
   };
 
   const metrics = reportData?.metrics || {
@@ -95,14 +161,56 @@ export default function ReportsPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handlePrintReport}
-          className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-xs font-semibold shadow-2xs transition-colors shrink-0"
-        >
-          <Printer className="w-4 h-4 text-gray-600" />
-          <span>Cetak Laporan Ringkasan</span>
-        </button>
+        {/* Action Buttons: Export Excel, Export PDF, Cetak Dokumen */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Export Excel Button */}
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={isLoading || isExportingExcel || !reportData}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+            title="Download laporan dalam format spreadsheet Microsoft Excel (.xlsx)"
+          >
+            {isExportingExcel ? (
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+            )}
+            <span>Export Excel</span>
+          </button>
+
+          {/* Export PDF Button */}
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            disabled={isLoading || isExportingPdf || !reportData}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+            title="Download dokumen resmi laporan keuangan dalam format PDF A4"
+          >
+            {isExportingPdf ? (
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            ) : (
+              <FileText className="w-4 h-4 shrink-0" />
+            )}
+            <span>Export PDF</span>
+          </button>
+
+          {/* Print Clean Document Button */}
+          <button
+            type="button"
+            onClick={handlePrintReport}
+            disabled={isLoading || isPrintingDoc || !reportData}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-gray-50 active:scale-[0.98] text-gray-700 border border-gray-200 rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+            title="Cetak langsung dokumen laporan resmi (tanpa elemen navigasi website)"
+          >
+            {isPrintingDoc ? (
+              <Loader2 className="w-4 h-4 animate-spin text-gray-600 shrink-0" />
+            ) : (
+              <Printer className="w-4 h-4 text-gray-600 shrink-0" />
+            )}
+            <span>Cetak Dokumen</span>
+          </button>
+        </div>
       </div>
 
       {/* Period Filter Bar */}
@@ -130,7 +238,7 @@ export default function ReportsPage() {
           ))}
         </div>
 
-        {period === "custom" && (
+        {period === "custom" ? (
           <div className="flex items-center gap-2 w-full md:w-auto">
             <input
               type="date"
@@ -152,6 +260,16 @@ export default function ReportsPage() {
             >
               Terapkan
             </button>
+          </div>
+        ) : (
+          <div className="hidden sm:flex items-center gap-1.5 text-xs text-gray-500 font-medium">
+            <Calendar className="w-3.5 h-3.5 text-blue-600" />
+            <span>
+              Periode data:{" "}
+              <strong className="text-gray-800">
+                {getPeriodLabel(period, dateStart, dateEnd)}
+              </strong>
+            </span>
           </div>
         )}
       </div>

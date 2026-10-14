@@ -62,12 +62,16 @@ export const API_ENDPOINTS = {
     CREATE: "/customers",
     UPDATE: (id) => `/customers/${id}`,
     DELETE: (id) => `/customers/${id}`,
+    EXPORT: "/customers/export",
+    BULK_IMPORT: "/customers/bulk-import",
   },
   PRODUCTS: {
     LIST: "/products",
     CREATE: "/products",
     UPDATE: (id) => `/products/${id}`,
     DELETE: (id) => `/products/${id}`,
+    EXPORT: "/products/export",
+    BULK_IMPORT: "/products/bulk-import",
   },
   PRESCRIPTIONS: {
     LIST: "/prescriptions",

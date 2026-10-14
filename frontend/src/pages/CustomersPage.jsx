@@ -8,8 +8,10 @@ import {
   Phone,
   FileText,
   Receipt,
-  User,
   History,
+  FileSpreadsheet,
+  FileUp,
+  Loader2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
@@ -20,6 +22,8 @@ import Table from "@/components/common/Table";
 import Pagination from "@/components/common/Pagination";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
+import CustomerImportModal from "@/components/common/CustomerImportModal";
+import { exportCustomersToExcel } from "@/utils/bulkDataHandler";
 
 const initialForm = {
   name: "",
@@ -57,6 +61,34 @@ export default function CustomersPage() {
   // Detail / History Modal State
   const [historyCustomer, setHistoryCustomer] = useState(null);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
+  // Bulk Import & Export State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportCustomers = async () => {
+    setIsExporting(true);
+    try {
+      const params = {};
+      if (genderFilter) params.gender = genderFilter;
+      if (debouncedSearch) params.search = debouncedSearch;
+
+      const res = await request.get(API_ENDPOINTS.CUSTOMERS.EXPORT, params);
+      if (res?.success && res?.data) {
+        if (res.data.length === 0) {
+          toast.error("Tidak ada data pelanggan untuk diekspor");
+          return;
+        }
+        const fileName = exportCustomersToExcel(res.data);
+        toast.success(`Berhasil mengekspor ${res.data.length} pelanggan (${fileName})!`);
+      }
+    } catch (err) {
+      console.error("Gagal ekspor data pelanggan:", err);
+      toast.error(err.message || "Gagal mengekspor data pelanggan");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   useEffect(() => {
     fetchCustomers();
@@ -182,14 +214,46 @@ export default function CustomersPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenCreate}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Pelanggan Baru</span>
-        </button>
+        {/* Action Button Group */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Export Excel Button */}
+          <button
+            type="button"
+            onClick={handleExportCustomers}
+            disabled={isLoading || isExporting}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+            title="Download seluruh data pelanggan berformat Microsoft Excel (.xlsx)"
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+            )}
+            <span>Export Excel</span>
+          </button>
+
+          {/* Import Masal Button */}
+          <button
+            type="button"
+            onClick={() => setIsImportModalOpen(true)}
+            disabled={isLoading}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+            title="Unggah file Excel/CSV untuk menambah atau memperbarui data pelanggan secara masal"
+          >
+            <FileUp className="w-4 h-4 shrink-0" />
+            <span>Import Masal</span>
+          </button>
+
+          {/* Tambah Pelanggan Button */}
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4 shrink-0" />
+            <span>Tambah Pelanggan Baru</span>
+          </button>
+        </div>
       </div>
 
       {/* Toolbar Filter */}
@@ -446,11 +510,11 @@ export default function CustomersPage() {
           <div>
             <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <FileText className="w-4 h-4 text-blue-600" />
-              Riwayat Resep Kacamata ({historyCustomer?.prescriptions?.length || 0})
+              Riwayat Rekam Medis ({historyCustomer?.prescriptions?.length || 0})
             </h4>
 
             {historyCustomer?.prescriptions?.length === 0 ? (
-              <p className="text-xs text-gray-400 italic">Belum ada catatan resep periksa.</p>
+              <p className="text-xs text-gray-400 italic">Belum ada catatan rekam medis periksa.</p>
             ) : (
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {historyCustomer?.prescriptions?.map((rx) => (
@@ -512,7 +576,14 @@ export default function CustomersPage() {
         onConfirm={handleDelete}
         isLoading={isDeleting}
         title="Hapus Pelanggan"
-        message="Apakah Anda yakin ingin menghapus pelanggan ini? Seluruh riwayat transaksi dan resep terkait akan ikut terhapus."
+        message="Apakah Anda yakin ingin menghapus pelanggan ini? Seluruh riwayat transaksi dan rekam medis terkait akan ikut terhapus."
+      />
+
+      {/* Bulk Customer Import Modal */}
+      <CustomerImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onSuccess={fetchCustomers}
       />
     </div>
   );

@@ -116,7 +116,7 @@ export default function PrescriptionsPage() {
         setTotalItems(res.pagination.total);
       }
     } catch (err) {
-      toast.error(err.message || "Gagal memuat resep kacamata");
+      toast.error(err.message || "Gagal memuat data rekam medis");
     } finally {
       setIsLoading(false);
     }
@@ -172,15 +172,15 @@ export default function PrescriptionsPage() {
     try {
       if (isEditing) {
         await request.put(API_ENDPOINTS.PRESCRIPTIONS.UPDATE(editId), formData);
-        toast.success("Resep kacamata berhasil diperbarui");
+        toast.success("Rekam medis berhasil diperbarui");
       } else {
         await request.post(API_ENDPOINTS.PRESCRIPTIONS.CREATE, formData);
-        toast.success("Resep kacamata baru berhasil disimpan");
+        toast.success("Rekam medis baru berhasil disimpan");
       }
       setIsFormModalOpen(false);
       fetchPrescriptions();
     } catch (err) {
-      toast.error(err.message || "Gagal menyimpan resep");
+      toast.error(err.message || "Gagal menyimpan rekam medis");
     } finally {
       setIsSubmitting(false);
     }
@@ -191,11 +191,11 @@ export default function PrescriptionsPage() {
     setIsDeleting(true);
     try {
       await request.delete(API_ENDPOINTS.PRESCRIPTIONS.DELETE(deleteId));
-      toast.success("Resep berhasil dihapus");
+      toast.success("Rekam medis berhasil dihapus");
       setDeleteId(null);
       fetchPrescriptions();
     } catch (err) {
-      toast.error(err.message || "Gagal menghapus resep");
+      toast.error(err.message || "Gagal menghapus rekam medis");
     } finally {
       setIsDeleting(false);
     }
@@ -223,7 +223,7 @@ export default function PrescriptionsPage() {
         <div>
           <h2 className="text-xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
             <Activity className="w-5 h-5 text-blue-600" />
-            Resep Kacamata & Refraksi Subjektif
+            Rekam Medis & Refraksi Pasien
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
             Rekam medis pemeriksaan refraksi klinis terpisah OD dan OS dengan parameter standar optik
@@ -236,7 +236,7 @@ export default function PrescriptionsPage() {
           className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors shrink-0"
         >
           <Plus className="w-4 h-4" />
-          <span>Tambah Pemeriksaan Resep</span>
+          <span>Tambah Rekam Medis</span>
         </button>
       </div>
 
@@ -256,7 +256,7 @@ export default function PrescriptionsPage() {
           />
         </div>
         <div className="text-xs text-gray-500">
-          Total Resep Tersimpan: <span className="font-bold text-gray-800">{totalItems}</span>
+          Total Rekam Medis: <span className="font-bold text-gray-800">{totalItems}</span>
         </div>
       </div>
 
@@ -265,7 +265,7 @@ export default function PrescriptionsPage() {
         headers={headers}
         isLoading={isLoading}
         isEmpty={prescriptions.length === 0}
-        emptyMessage="Belum ada data resep kacamata."
+        emptyMessage="Belum ada data rekam medis pasien."
       >
         {prescriptions.map((rx) => (
           <tr key={rx.id} className="hover:bg-gray-50/70 transition-colors">
@@ -320,7 +320,7 @@ export default function PrescriptionsPage() {
                   type="button"
                   onClick={() => handlePrint(rx)}
                   className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  title="Cetak Resep Medis"
+                  title="Cetak Rekam Medis"
                 >
                   <Printer className="w-4 h-4" />
                 </button>
@@ -328,7 +328,7 @@ export default function PrescriptionsPage() {
                   type="button"
                   onClick={() => handleOpenEdit(rx)}
                   className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                  title="Edit Resep"
+                  title="Edit Rekam Medis"
                 >
                   <Edit2 className="w-4 h-4" />
                 </button>
@@ -336,7 +336,7 @@ export default function PrescriptionsPage() {
                   type="button"
                   onClick={() => setDeleteId(rx.id)}
                   className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  title="Hapus Resep"
+                  title="Hapus Rekam Medis"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -363,7 +363,7 @@ export default function PrescriptionsPage() {
       <Modal
         isOpen={isFormModalOpen}
         onClose={() => setIsFormModalOpen(false)}
-        title={isEditing ? "Edit Resep Kacamata & Refraksi" : "Input Resep Medis Pasien Baru"}
+        title={isEditing ? "Edit Rekam Medis Pasien" : "Input Rekam Medis Pasien Baru"}
         subtitle="Form rekam medis optik lengkap parameter klinis OD & OS"
         maxWidth="max-w-4xl"
         footer={
@@ -381,7 +381,7 @@ export default function PrescriptionsPage() {
               disabled={isSubmitting}
               className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50"
             >
-              {isSubmitting ? "Menyimpan..." : isEditing ? "Simpan Perubahan" : "Simpan Resep Pasien"}
+              {isSubmitting ? "Menyimpan..." : isEditing ? "Simpan Perubahan" : "Simpan Rekam Medis"}
             </button>
           </>
         }
@@ -693,8 +693,8 @@ export default function PrescriptionsPage() {
         onClose={() => setDeleteId(null)}
         onConfirm={handleDelete}
         isLoading={isDeleting}
-        title="Hapus Resep Kacamata"
-        message="Apakah Anda yakin ingin menghapus catatan resep ini? Data rekam medis pasien akan dihapus secara permanen."
+        title="Hapus Rekam Medis"
+        message="Apakah Anda yakin ingin menghapus catatan rekam medis ini? Data rekam medis pasien akan dihapus secara permanen."
       />
 
       {/* Printable Prescription Card Modal */}

@@ -128,6 +128,22 @@ const initDatabaseTables = async () => {
     } catch {
       // Column may already exist
     }
+
+    // Sync existing transactions that have no prescription_id with customer's latest prescription
+    try {
+      await pool.query(`
+        UPDATE transactions t
+        JOIN (
+          SELECT customer_id, MAX(id) AS latest_rx_id 
+          FROM prescriptions 
+          GROUP BY customer_id
+        ) p ON t.customer_id = p.customer_id
+        SET t.prescription_id = p.latest_rx_id
+        WHERE t.prescription_id IS NULL
+      `);
+    } catch {
+      // ignore
+    }
   } catch (err) {
     console.error('Database init warning:', err.message);
   }
@@ -515,6 +531,129 @@ app.get('/api/customers', async (req, res) => {
   }
 });
 
+app.get('/api/customers/export', async (req, res) => {
+  try {
+    const { search = '', gender = '' } = req.query;
+    let whereConditions = ['1=1'];
+    let params = [];
+
+    if (search) {
+      whereConditions.push('(name LIKE ? OR phone LIKE ? OR code LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    if (gender) {
+      whereConditions.push('gender = ?');
+      params.push(gender);
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+    const [customers] = await pool.query(
+      `SELECT id, code, name, phone, gender, age, address, notes, created_at 
+       FROM customers 
+       WHERE ${whereClause} 
+       ORDER BY id DESC`,
+      params
+    );
+
+    res.json({ success: true, data: customers });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/customers/bulk-import', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { customers = [], updateExisting = true } = req.body;
+    if (!Array.isArray(customers) || customers.length === 0) {
+      return res.status(400).json({ success: false, message: 'Daftar data pelanggan tidak boleh kosong' });
+    }
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+    const errors = [];
+
+    await connection.beginTransaction();
+
+    const [lastCust] = await connection.query('SELECT id FROM customers ORDER BY id DESC LIMIT 1');
+    let nextId = (lastCust[0]?.id || 0) + 1;
+
+    for (let i = 0; i < customers.length; i++) {
+      const c = customers[i];
+      const rowNum = i + 1;
+      const name = (c.name || '').trim();
+      const phone = (c.phone || '').trim();
+
+      if (!name || !phone) {
+        errors.push(`Baris ${rowNum}: Nama dan Nomor HP wajib diisi`);
+        skipped++;
+        continue;
+      }
+
+      let gender = (c.gender || 'Laki-laki').trim();
+      const genLower = gender.toLowerCase();
+      if (genLower.startsWith('p') || genLower.includes('wanita') || genLower.includes('perempuan')) {
+        gender = 'Perempuan';
+      } else {
+        gender = 'Laki-laki';
+      }
+
+      const age = c.age ? parseInt(c.age) || null : null;
+      const address = (c.address || '').trim();
+      const notes = (c.notes || '').trim();
+
+      // Match existing customer by phone number or code
+      const [existing] = await connection.query(
+        'SELECT id, code FROM customers WHERE phone = ? OR (code IS NOT NULL AND code = ?)',
+        [phone, c.code || '']
+      );
+
+      if (existing.length > 0) {
+        if (updateExisting) {
+          await connection.query(
+            `UPDATE customers SET name = ?, gender = ?, age = ?, address = ?, notes = ? WHERE id = ?`,
+            [name, gender, age, address, notes, existing[0].id]
+          );
+          updated++;
+        } else {
+          skipped++;
+        }
+      } else {
+        const code = (c.code || '').trim() || `CUST-${String(nextId).padStart(4, '0')}`;
+        nextId++;
+
+        await connection.query(
+          `INSERT INTO customers (code, name, phone, gender, age, address, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [code, name, phone, gender, age, address, notes]
+        );
+        imported++;
+      }
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Proses import pelanggan selesai: ${imported} ditambahkan, ${updated} diperbarui, ${skipped} dilewati.`,
+      summary: {
+        total: customers.length,
+        imported,
+        updated,
+        skipped,
+        errors
+      }
+    });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ success: false, message: 'Gagal melakukan import masal pelanggan: ' + error.message });
+  } finally {
+    connection.release();
+  }
+});
+
 app.get('/api/customers/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -643,6 +782,130 @@ app.get('/api/products', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/products/export', async (req, res) => {
+  try {
+    const { category = '', search = '', is_active } = req.query;
+    let whereConditions = ['1=1'];
+    let params = [];
+
+    if (search) {
+      whereConditions.push('(name LIKE ? OR sku LIKE ? OR barcode LIKE ? OR brand LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    if (category) {
+      whereConditions.push('category = ?');
+      params.push(category);
+    }
+
+    if (is_active !== undefined && is_active !== '') {
+      whereConditions.push('is_active = ?');
+      params.push(parseInt(is_active));
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+    const [products] = await pool.query(
+      `SELECT id, sku, barcode, name, category, brand, cost_price, selling_price, stock, unit, specifications, is_active, created_at 
+       FROM products 
+       WHERE ${whereClause} 
+       ORDER BY id DESC`,
+      params
+    );
+
+    res.json({ success: true, data: products });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/products/bulk-import', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { products = [], updateExisting = true } = req.body;
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ success: false, message: 'Daftar data produk tidak boleh kosong' });
+    }
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+    const errors = [];
+
+    await connection.beginTransaction();
+
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      const rowNum = i + 1;
+      const sku = (p.sku || '').trim();
+      const name = (p.name || '').trim();
+
+      if (!sku || !name) {
+        errors.push(`Baris ${rowNum}: SKU dan Nama Produk wajib diisi`);
+        skipped++;
+        continue;
+      }
+
+      let category = (p.category || 'Frame').trim();
+      const catLower = category.toLowerCase();
+      if (catLower.includes('lensa') || catLower.includes('lens')) category = 'Lensa';
+      else if (catLower.includes('aksesor') || catLower.includes('access')) category = 'Aksesori';
+      else category = 'Frame';
+
+      const barcode = (p.barcode || sku).trim();
+      const brand = (p.brand || '').trim();
+      const cost_price = Math.max(0, parseFloat(p.cost_price) || 0);
+      const selling_price = Math.max(0, parseFloat(p.selling_price) || 0);
+      const stock = parseInt(p.stock) || 0;
+      const unit = (p.unit || 'Pcs').trim();
+      const specifications = (p.specifications || '').trim();
+      const is_active = p.is_active === false || p.is_active === 0 || p.is_active === '0' || p.is_active === 'Nonaktif' ? 0 : 1;
+
+      const [existing] = await connection.query('SELECT id FROM products WHERE sku = ?', [sku]);
+
+      if (existing.length > 0) {
+        if (updateExisting) {
+          await connection.query(
+            `UPDATE products SET 
+              barcode = ?, name = ?, category = ?, brand = ?, cost_price = ?,
+              selling_price = ?, stock = ?, unit = ?, specifications = ?, is_active = ?
+             WHERE id = ?`,
+            [barcode, name, category, brand, cost_price, selling_price, stock, unit, specifications, is_active, existing[0].id]
+          );
+          updated++;
+        } else {
+          skipped++;
+        }
+      } else {
+        await connection.query(
+          `INSERT INTO products (sku, barcode, name, category, brand, cost_price, selling_price, stock, unit, specifications, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [sku, barcode, name, category, brand, cost_price, selling_price, stock, unit, specifications, is_active]
+        );
+        imported++;
+      }
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Proses import produk selesai: ${imported} ditambahkan, ${updated} diperbarui, ${skipped} dilewati.`,
+      summary: {
+        total: products.length,
+        imported,
+        updated,
+        skipped,
+        errors
+      }
+    });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ success: false, message: 'Gagal melakukan import masal produk: ' + error.message });
+  } finally {
+    connection.release();
   }
 });
 
@@ -815,7 +1078,26 @@ app.post('/api/prescriptions', async (req, res) => {
       ]
     );
 
-    const [created] = await pool.query('SELECT * FROM prescriptions WHERE id = ?', [result.insertId]);
+    const newPrescriptionId = result.insertId;
+    const [created] = await pool.query('SELECT * FROM prescriptions WHERE id = ?', [newPrescriptionId]);
+
+    // Automatically associate this prescription with any unassociated transactions of this customer
+    try {
+      await pool.query(
+        'UPDATE transactions SET prescription_id = ? WHERE customer_id = ? AND prescription_id IS NULL',
+        [newPrescriptionId, customer_id]
+      );
+      await pool.query(
+        `UPDATE lab_orders lo
+         JOIN transactions t ON lo.transaction_id = t.id
+         SET lo.prescription_id = ?
+         WHERE t.customer_id = ? AND (lo.prescription_id IS NULL OR lo.prescription_id = 0)`,
+        [newPrescriptionId, customer_id]
+      );
+    } catch (linkErr) {
+      console.error('Warning auto-linking prescription:', linkErr.message);
+    }
+
     res.status(201).json({ success: true, message: 'Resep kacamata berhasil disimpan', data: created[0] });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -908,7 +1190,11 @@ app.get('/api/transactions', async (req, res) => {
     const dataSql = `SELECT t.*, 
                             c.name AS customer_name, c.phone AS customer_phone, c.code AS customer_code,
                             e.name AS employee_name,
-                            lo.id AS lab_order_id, lo.status AS lab_status
+                            lo.id AS lab_order_id, lo.status AS lab_status,
+                            COALESCE(
+                              t.prescription_id,
+                              (SELECT p.id FROM prescriptions p WHERE p.customer_id = t.customer_id ORDER BY p.exam_date DESC, p.id DESC LIMIT 1)
+                            ) AS prescription_id
                      FROM transactions t 
                      JOIN customers c ON t.customer_id = c.id 
                      JOIN employees e ON t.employee_id = e.id 
@@ -929,7 +1215,11 @@ app.get('/api/transactions/:id', async (req, res) => {
     const [tRows] = await pool.query(
       `SELECT t.*, 
               c.name AS customer_name, c.phone AS customer_phone, c.code AS customer_code, c.address AS customer_address,
-              e.name AS employee_name, e.role AS employee_role
+              e.name AS employee_name, e.role AS employee_role,
+              COALESCE(
+                t.prescription_id,
+                (SELECT p.id FROM prescriptions p WHERE p.customer_id = t.customer_id ORDER BY p.exam_date DESC, p.id DESC LIMIT 1)
+              ) AS prescription_id
        FROM transactions t 
        JOIN customers c ON t.customer_id = c.id 
        JOIN employees e ON t.employee_id = e.id 

@@ -26,7 +26,7 @@ export default function Sidebar() {
 
   const navigation = [
     { name: "Kasir POS", path: "/pos", icon: ShoppingCart, roles: ["Owner", "Kasir"] },
-    { name: "Resep Pasien (RO)", path: "/prescriptions", icon: Glasses, roles: ["Owner", "Kasir", "Refraksionis Optisien"] },
+    { name: "Rekam Medis", path: "/prescriptions", icon: Glasses, roles: ["Owner", "Kasir", "Refraksionis Optisien"] },
     { name: "Status Lab & Faset", path: "/lab", icon: Wrench, roles: ["Owner", "Kasir", "Teknisi Lab"] },
     { name: "Daftar Transaksi", path: "/transactions", icon: Receipt, roles: ["Owner", "Kasir"] },
     { name: "Master Pelanggan", path: "/customers", icon: Users, roles: ["Owner", "Kasir", "Refraksionis Optisien"] },

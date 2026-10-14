@@ -10,6 +10,9 @@ import {
   AlertTriangle,
   Upload,
   Image,
+  FileSpreadsheet,
+  FileUp,
+  Loader2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
@@ -21,6 +24,8 @@ import Pagination from "@/components/common/Pagination";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ProductImage from "@/components/common/ProductImage";
+import ProductImportModal from "@/components/common/ProductImportModal";
+import { exportProductsToExcel } from "@/utils/bulkDataHandler";
 
 const initialForm = {
   sku: "",
@@ -61,6 +66,34 @@ export default function ProductsPage() {
   // Delete Confirm State
   const [deleteId, setDeleteId] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Bulk Import & Export State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportProducts = async () => {
+    setIsExporting(true);
+    try {
+      const params = {};
+      if (categoryFilter) params.category = categoryFilter;
+      if (debouncedSearch) params.search = debouncedSearch;
+
+      const res = await request.get(API_ENDPOINTS.PRODUCTS.EXPORT, params);
+      if (res?.success && res?.data) {
+        if (res.data.length === 0) {
+          toast.error("Tidak ada data produk untuk diekspor");
+          return;
+        }
+        const fileName = exportProductsToExcel(res.data);
+        toast.success(`Berhasil mengekspor ${res.data.length} produk (${fileName})!`);
+      }
+    } catch (err) {
+      console.error("Gagal ekspor produk:", err);
+      toast.error(err.message || "Gagal mengekspor data produk");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   useEffect(() => {
     fetchProducts();
@@ -205,14 +238,46 @@ export default function ProductsPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenCreate}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Produk Baru</span>
-        </button>
+        {/* Action Button Group */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Export Excel Button */}
+          <button
+            type="button"
+            onClick={handleExportProducts}
+            disabled={isLoading || isExporting}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+            title="Download seluruh data katalog produk berformat Microsoft Excel (.xlsx)"
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+            )}
+            <span>Export Excel</span>
+          </button>
+
+          {/* Import Masal Button */}
+          <button
+            type="button"
+            onClick={() => setIsImportModalOpen(true)}
+            disabled={isLoading}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+            title="Unggah file Excel/CSV untuk menambah atau memperbarui banyak produk sekaligus"
+          >
+            <FileUp className="w-4 h-4 shrink-0" />
+            <span>Import Masal</span>
+          </button>
+
+          {/* Tambah Produk Button */}
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4 shrink-0" />
+            <span>Tambah Produk Baru</span>
+          </button>
+        </div>
       </div>
 
       {/* Toolbar Filter */}
@@ -570,6 +635,13 @@ export default function ProductsPage() {
         isLoading={isDeleting}
         title="Hapus Produk"
         message="Apakah Anda yakin ingin menghapus produk ini dari katalog?"
+      />
+
+      {/* Bulk Product Import Modal */}
+      <ProductImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onSuccess={fetchProducts}
       />
     </div>
   );

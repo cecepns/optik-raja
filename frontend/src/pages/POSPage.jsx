@@ -645,7 +645,7 @@ export default function POSPage() {
                 <div className="p-2.5 bg-blue-50/60 rounded-lg border border-blue-100 space-y-1.5">
                   <span className="text-[11px] font-bold text-blue-800 flex items-center gap-1">
                     <FileText className="w-3 h-3" />
-                    Resep Mata
+                    Rekam Medis (Resep Kacamata)
                   </span>
                   <select
                     value={selectedPrescription ? selectedPrescription.id : ""}

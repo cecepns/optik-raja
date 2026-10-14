@@ -42,6 +42,7 @@ export default function TransactionsPage() {
   // Read-only Prescription Modal (SRS Modul 4 requirement)
   const [prescriptionModalData, setPrescriptionModalData] = useState(null);
   const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
+  const [customerRxMap, setCustomerRxMap] = useState({});
 
   // Pelunasan DP Modal
   const [payModalTrx, setPayModalTrx] = useState(null);
@@ -64,11 +65,26 @@ export default function TransactionsPage() {
       };
       if (statusFilter) params.payment_status = statusFilter;
 
-      const res = await request.get(API_ENDPOINTS.TRANSACTIONS.LIST, params);
-      if (res?.success) {
-        setTransactions(res.data);
-        setTotalPages(res.pagination.totalPages);
-        setTotalItems(res.pagination.total);
+      const [res, rxRes] = await Promise.allSettled([
+        request.get(API_ENDPOINTS.TRANSACTIONS.LIST, params),
+        request.get(API_ENDPOINTS.PRESCRIPTIONS.LIST, { limit: 100 }),
+      ]);
+
+      if (res.status === "fulfilled" && res.value?.success) {
+        setTransactions(res.value.data);
+        setTotalPages(res.value.pagination.totalPages);
+        setTotalItems(res.value.pagination.total);
+      }
+
+      if (rxRes.status === "fulfilled" && rxRes.value?.data) {
+        const map = {};
+        rxRes.value.data.forEach((rx) => {
+          // Keep newest prescription for each customer
+          if (!map[rx.customer_id]) {
+            map[rx.customer_id] = rx;
+          }
+        });
+        setCustomerRxMap(map);
       }
     } catch (err) {
       toast.error(err.message || "Gagal memuat daftar transaksi");
@@ -90,14 +106,31 @@ export default function TransactionsPage() {
     }
   };
 
-  // View Read-Only Prescription Modal
-  const handleViewPrescription = async (trx) => {
-    if (!trx.prescription_id) {
-      toast.error("Transaksi ini tidak memiliki catatan resep kacamata");
+  // View Read-Only Prescription Modal with fallback resolution
+  const handleViewPrescription = async (trx, targetRxId) => {
+    let rxId = targetRxId || trx.prescription_id || customerRxMap[trx.customer_id]?.id;
+
+    // Fallback: If not resolved, query backend specifically for this customer
+    if (!rxId && trx.customer_id) {
+      try {
+        const res = await request.get(API_ENDPOINTS.PRESCRIPTIONS.LIST, {
+          customer_id: trx.customer_id,
+        });
+        if (res?.data && res.data.length > 0) {
+          rxId = res.data[0].id;
+        }
+      } catch (err) {
+        console.error("Prescription fallback fetch error:", err);
+      }
+    }
+
+    if (!rxId) {
+      toast.error("Pasien ini belum memiliki catatan di menu Rekam Medis");
       return;
     }
+
     try {
-      const res = await request.get(API_ENDPOINTS.PRESCRIPTIONS.DETAIL(trx.prescription_id));
+      const res = await request.get(API_ENDPOINTS.PRESCRIPTIONS.DETAIL(rxId));
       if (res?.data) {
         setPrescriptionModalData(res.data);
         setIsPrescriptionModalOpen(true);
@@ -151,7 +184,7 @@ export default function TransactionsPage() {
     { label: "Terbayar (DP)", align: "right" },
     { label: "Sisa Piutang", align: "right" },
     { label: "Status Bayar", align: "center" },
-    { label: "Resep Pasien", align: "center" },
+    { label: "Rekam Medis", align: "center" },
     { label: "Aksi", align: "center" },
   ];
 
@@ -275,19 +308,24 @@ export default function TransactionsPage() {
 
             {/* Prescription Button (Read-only modal as specified in SRS Modul 4) */}
             <td className="px-4 py-3 text-center whitespace-nowrap">
-              {trx.prescription_id ? (
-                <button
-                  type="button"
-                  onClick={() => handleViewPrescription(trx)}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
-                  title="Lihat Resep Kacamata Terkait"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>Lihat Resep</span>
-                </button>
-              ) : (
-                <span className="text-gray-400 text-xs">Tanpa Resep</span>
-              )}
+              {(() => {
+                const effectiveRxId =
+                  trx.prescription_id || customerRxMap[trx.customer_id]?.id;
+                if (effectiveRxId) {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleViewPrescription(trx, effectiveRxId)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 active:scale-95 border border-blue-200 rounded-lg transition-all cursor-pointer shadow-2xs"
+                      title="Lihat Rekam Medis Pasien"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Rekam Medis</span>
+                    </button>
+                  );
+                }
+                return <span className="text-gray-400 text-xs">Tanpa Rekam Medis</span>;
+              })()}
             </td>
 
             {/* Action Buttons */}
@@ -338,7 +376,7 @@ export default function TransactionsPage() {
       <Modal
         isOpen={isPrescriptionModalOpen}
         onClose={() => setIsPrescriptionModalOpen(false)}
-        title="Resep Kacamata Terkait (Mode Hanya-Baca)"
+        title="Rekam Medis Pasien (Mode Hanya-Baca)"
         subtitle={`Pasien: ${prescriptionModalData?.customer_name} • Pemeriksa: ${prescriptionModalData?.examiner_name}`}
         maxWidth="max-w-2xl"
         footer={
