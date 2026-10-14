@@ -11,19 +11,23 @@ import {
   Plus,
   Minus,
   Package,
+  MessageCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
 import { API_ENDPOINTS } from "@/utils/endpoints";
 import { formatDate, formatDateTime, formatRupiah, formatDiopter } from "@/utils/formatters";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useApp } from "@/context/AppContext";
 import Table from "@/components/common/Table";
 import Pagination from "@/components/common/Pagination";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ReceiptPrintModal from "@/components/print/ReceiptPrintModal";
+import { sendWhatsAppMessage, buildTransactionWhatsAppMessage } from "@/utils/whatsapp";
 
 export default function TransactionsPage() {
+  const { settings } = useApp();
   const [transactions, setTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -691,6 +695,19 @@ export default function TransactionsPage() {
                   title="Cetak Struk Nota"
                 >
                   <Printer className="w-4 h-4" />
+                </button>
+
+                {/* Send Receipt via WhatsApp */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const msg = buildTransactionWhatsAppMessage(trx, settings);
+                    sendWhatsAppMessage(trx.customer_phone, msg);
+                  }}
+                  className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                  title="Kirim Nota via WhatsApp"
+                >
+                  <MessageCircle className="w-4 h-4" />
                 </button>
 
                 {/* Edit Transaction */}

@@ -1,7 +1,8 @@
 import React from "react";
-import { Printer, X, FileText, CheckCircle2 } from "lucide-react";
+import { Printer, X, FileText, CheckCircle2, MessageCircle } from "lucide-react";
 import { formatDate, formatDiopter } from "@/utils/formatters";
 import { useApp } from "@/context/AppContext";
+import { sendWhatsAppMessage, buildPrescriptionWhatsAppMessage } from "@/utils/whatsapp";
 
 export default function PrescriptionPrintModal({ isOpen, onClose, prescription }) {
   const { settings } = useApp();
@@ -10,6 +11,11 @@ export default function PrescriptionPrintModal({ isOpen, onClose, prescription }
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleSendWhatsApp = () => {
+    const msg = buildPrescriptionWhatsAppMessage(prescription, settings);
+    sendWhatsAppMessage(prescription.customer_phone, msg);
   };
 
   return (
@@ -30,15 +36,25 @@ export default function PrescriptionPrintModal({ isOpen, onClose, prescription }
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
+              onClick={handleSendWhatsApp}
+              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-xs transition-all cursor-pointer"
+              title="Kirim Resep ke WhatsApp Pasien"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Kirim WhatsApp</span>
+              <span className="sm:hidden">WA</span>
+            </button>
+            <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs"
+              className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-xs transition-all cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>Cetak Resep (Print)</span>
+              <span>Cetak (Print)</span>
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-200"
+              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>

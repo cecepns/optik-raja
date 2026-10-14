@@ -14,17 +14,20 @@ import {
   Loader2,
   CheckCircle,
   X,
+  MessageCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
 import { API_ENDPOINTS } from "@/utils/endpoints";
 import { formatDate, formatDiopter } from "@/utils/formatters";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useApp } from "@/context/AppContext";
 import Pagination from "@/components/common/Pagination";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PrescriptionPrintModal from "@/components/print/PrescriptionPrintModal";
 import { exportPrescriptionsToExcel } from "@/utils/bulkDataHandler";
+import { sendWhatsAppMessage, buildPrescriptionWhatsAppMessage } from "@/utils/whatsapp";
 
 /**
  * Format date as DD/MM/YYYY (e.g. 13/10/2026) matching screenshot
@@ -72,6 +75,7 @@ const initialForm = {
 };
 
 export default function PrescriptionsPage() {
+  const { settings } = useApp();
   const [prescriptions, setPrescriptions] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -595,8 +599,21 @@ export default function PrescriptionsPage() {
                   </div>
                 </div>
 
-                {/* Dashed Separator & Action Buttons (Eye, Edit, Trash) */}
+                {/* Dashed Separator & Action Buttons (WA, Eye, Edit, Trash) */}
                 <div className="border-t border-dashed border-gray-200 pt-2.5 flex items-center justify-end gap-1.5 sm:gap-2">
+                  {/* WhatsApp Send Button - Emerald outline */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const msg = buildPrescriptionWhatsAppMessage(rx, settings);
+                      sendWhatsAppMessage(rx.customer_phone, msg);
+                    }}
+                    className="p-1.5 rounded-lg border border-emerald-400 text-emerald-600 bg-white hover:bg-emerald-50 active:scale-95 transition-all cursor-pointer shadow-2xs"
+                    title="Kirim Resep via WhatsApp"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                  </button>
+
                   {/* Eye (Detail / Cetak Resep) Button - Cyan outline */}
                   <button
                     type="button"

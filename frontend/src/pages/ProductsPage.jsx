@@ -609,17 +609,7 @@ export default function ProductsPage() {
       >
         {selectedProduct && (
           <div className="space-y-4">
-            {/* Foto Produk Preview jika ada */}
-            {selectedProduct.image && (
-              <div className="w-full flex justify-center bg-gray-50 p-3 rounded-xl border border-gray-100">
-                <ProductImage
-                  src={selectedProduct.image}
-                  name={selectedProduct.name}
-                  category={selectedProduct.category}
-                  className="w-36 h-36 rounded-xl object-contain shadow-xs"
-                />
-              </div>
-            )}
+            {/* Foto Produk Preview sementara disembunyikan */}
 
             {/* Nama Produk & Kategori */}
             <div>
@@ -842,52 +832,7 @@ export default function ProductsPage() {
             </div>
           </div>
 
-          {/* Foto Produk Input & Preview */}
-          <div>
-            <label className="text-xs font-bold text-gray-700 block mb-1.5">
-              Foto Produk (Opsional)
-            </label>
-            <div className="flex items-center gap-3.5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-              <ProductImage
-                src={formData.image}
-                name={formData.name || "Produk"}
-                category={formData.category}
-                className="w-16 h-16 rounded-xl shrink-0"
-                iconSize={20}
-              />
-              <div className="flex-1 space-y-2">
-                <div className="flex items-center gap-2">
-                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors">
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>{isUploadingImage ? "Mengunggah..." : "Unggah Foto"}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      disabled={isUploadingImage}
-                      className="hidden"
-                    />
-                  </label>
-                  {formData.image && (
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, image: "" })}
-                      className="px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors"
-                    >
-                      Hapus Foto
-                    </button>
-                  )}
-                </div>
-                <input
-                  type="text"
-                  value={formData.image}
-                  onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                  placeholder="Atau tempel URL gambar langsung (https://...)"
-                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-normal"
-                />
-              </div>
-            </div>
-          </div>
+          {/* Foto Produk Input & Preview sementara disembunyikan sesuai permintaan */}
         </form>
       </Modal>
 

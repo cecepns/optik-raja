@@ -522,37 +522,40 @@ export default function POSPage() {
                   <div
                     key={prod.id}
                     onClick={() => addToCart(prod)}
-                    className="bg-white rounded-xl border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all duration-150 cursor-pointer group overflow-hidden select-none active:scale-[0.98] flex flex-col"
+                    className="bg-white rounded-xl border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all duration-150 cursor-pointer group overflow-hidden select-none active:scale-[0.98] flex flex-col justify-between p-3 sm:p-3.5 space-y-2"
                   >
-                    {/* Product Image */}
-                    <div className="h-28 sm:h-32 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0">
-                      <ProductImage
-                        src={prod.image}
-                        name={prod.name}
-                        category={prod.category}
-                        className="w-full h-full rounded-none"
-                        iconSize={24}
-                      />
-                    </div>
-
-                    {/* Product Info */}
-                    <div className="p-2.5 space-y-1 flex-1 flex flex-col justify-between">
-                      <div>
-                        <h4 className="text-xs sm:text-sm font-bold text-gray-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors">
-                          {prod.name}
-                        </h4>
-                        {prod.brand && (
-                          <p className="text-[11px] text-gray-400 truncate mt-0.5">{prod.brand}</p>
+                    {/* Product Info (Foto produk sementara disembunyikan) */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/80">
+                          {prod.category}
+                        </span>
+                        {prod.barcode && (
+                          <span className="text-[9px] text-gray-400 font-mono truncate max-w-[80px]">
+                            {prod.barcode}
+                          </span>
                         )}
                       </div>
-                      <div className="flex items-center justify-between pt-1 mt-1 border-t border-gray-100">
-                        <span className="text-xs sm:text-sm font-extrabold text-blue-700">
-                          {formatRupiah(prod.selling_price)}
-                        </span>
-                        <span className={`text-[10px] font-medium ${prod.stock <= 5 ? "text-amber-600" : "text-gray-400"}`}>
-                          {prod.stock} {prod.unit || "Pcs"}
-                        </span>
-                      </div>
+                      <h4 className="text-xs sm:text-sm font-bold text-gray-900 line-clamp-2 leading-snug group-hover:text-blue-600 transition-colors">
+                        {prod.name}
+                      </h4>
+                      {prod.brand && (
+                        <p className="text-[11px] text-gray-400 truncate">{prod.brand}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      <span className="text-xs sm:text-sm font-extrabold text-blue-700">
+                        {formatRupiah(prod.selling_price)}
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                          prod.stock <= 5
+                            ? "bg-amber-50 text-amber-700 border border-amber-200"
+                            : "text-gray-500 bg-gray-50"
+                        }`}
+                      >
+                        {prod.stock} {prod.unit || "Pcs"}
+                      </span>
                     </div>
                   </div>
                 ))}

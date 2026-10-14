@@ -9,6 +9,7 @@ import {
   Loader2,
   FileText,
   Info,
+  MessageCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { formatRupiah, formatDateTime, formatDate } from "@/utils/formatters";
@@ -18,6 +19,7 @@ import {
   downloadReceiptPdf,
   printReceiptBluetooth,
 } from "@/utils/receiptPrinter";
+import { sendWhatsAppMessage, buildTransactionWhatsAppMessage } from "@/utils/whatsapp";
 
 export default function ReceiptPrintModal({ isOpen, onClose, transaction }) {
   const { settings } = useApp();
@@ -83,6 +85,12 @@ export default function ReceiptPrintModal({ isOpen, onClose, transaction }) {
     }
   };
 
+  // 4. Send Receipt via WhatsApp
+  const handleSendWhatsApp = () => {
+    const msg = buildTransactionWhatsAppMessage(transaction, settings);
+    sendWhatsAppMessage(transaction.customer_phone, msg);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
       <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden my-4 sm:my-6 flex flex-col max-h-[92vh]">
@@ -90,34 +98,34 @@ export default function ReceiptPrintModal({ isOpen, onClose, transaction }) {
         <div className="flex items-center justify-between px-5 py-3.5 bg-slate-900 text-white shrink-0">
           <div className="flex items-center gap-2">
             <Printer className="w-4 h-4 text-blue-400" />
-            <h3 className="font-bold text-sm tracking-tight">Cetak Struk Kasir</h3>
+            <h3 className="font-bold text-sm tracking-tight">Cetak & Kirim Struk Kasir</h3>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-blue-300 border border-slate-700">
               {paperSize}
             </span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
             title="Tutup"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* 3 Quick Action Buttons */}
+        {/* 4 Quick Action Buttons */}
         <div className="p-3 sm:p-4 bg-slate-50 border-b border-gray-200 shrink-0">
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2.5">
-            Pilihan Metode Cetak / Unduh:
+            Pilihan Metode Cetak / Bagikan Struk:
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {/* Opsi 1: Print Biasa */}
             <button
               type="button"
               onClick={handlePrintStandard}
-              className="flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+              className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
               title="Cetak lewat dialog printer biasa (kabel / WiFi / network / PDF printer)"
             >
-              <Printer className="w-4 h-4 shrink-0" />
+              <Printer className="w-3.5 h-3.5 shrink-0" />
               <span>Print Biasa</span>
             </button>
 
@@ -126,15 +134,15 @@ export default function ReceiptPrintModal({ isOpen, onClose, transaction }) {
               type="button"
               onClick={handlePrintBluetooth}
               disabled={isPrintingBluetooth}
-              className="flex items-center justify-center gap-2 px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+              className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
               title="Cetak langsung ke printer kasir mini termal Bluetooth (ESC/POS)"
             >
               {isPrintingBluetooth ? (
-                <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
               ) : (
-                <Bluetooth className="w-4 h-4 shrink-0" />
+                <Bluetooth className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span>Termal Bluetooth</span>
+              <span>Bluetooth</span>
             </button>
 
             {/* Opsi 3: Download PDF */}
@@ -142,15 +150,26 @@ export default function ReceiptPrintModal({ isOpen, onClose, transaction }) {
               type="button"
               onClick={handleDownloadPdf}
               disabled={isDownloadingPdf}
-              className="flex items-center justify-center gap-2 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+              className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-slate-700 hover:bg-slate-800 active:scale-[0.98] disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
               title="Unduh file struk format PDF ukuran struk termal"
             >
               {isDownloadingPdf ? (
-                <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
               ) : (
-                <Download className="w-4 h-4 shrink-0" />
+                <Download className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span>Download PDF</span>
+              <span>PDF Struk</span>
+            </button>
+
+            {/* Opsi 4: Kirim WhatsApp */}
+            <button
+              type="button"
+              onClick={handleSendWhatsApp}
+              className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+              title="Kirim Struk Nota ke WhatsApp Pelanggan"
+            >
+              <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>Kirim WA</span>
             </button>
           </div>
 
