@@ -6,7 +6,7 @@ import { useApp } from "@/context/AppContext";
 const PAGE_TITLES = {
   "/pos": "Kasir POS",
   "/prescriptions": "Rekam Medis Pasien",
-  "/lab": "Status Lab & Faset",
+  "/lab": "Status Pesanan",
   "/transactions": "Daftar Transaksi",
   "/customers": "Master Pelanggan",
   "/products": "Master Produk",

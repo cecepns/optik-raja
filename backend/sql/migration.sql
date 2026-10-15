@@ -163,15 +163,12 @@ UPDATE transactions t
 JOIN lab_orders lo ON t.id = lo.transaction_id
 SET t.order_status = lo.status;
 
-UPDATE transactions
-SET order_status = 'Selesai'
-WHERE payment_status = 'Lunas' 
-  AND (order_status IS NULL OR order_status = 'Proses Lab')
-  AND id NOT IN (
-    SELECT transaction_id 
-    FROM lab_orders 
-    WHERE status != 'Selesai'
-  );
+UPDATE transactions t
+LEFT JOIN lab_orders lo ON t.id = lo.transaction_id AND lo.status != 'Selesai'
+SET t.order_status = 'Selesai'
+WHERE t.payment_status = 'Lunas' 
+  AND (t.order_status IS NULL OR t.order_status = 'Proses Lab')
+  AND lo.id IS NULL;
 
 -- ==============================================================================
 -- Migrasi selesai! Seluruh tabel & relasi database telah mutakhir.
