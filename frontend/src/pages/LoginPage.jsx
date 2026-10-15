@@ -54,11 +54,6 @@ export default function LoginPage() {
     }
   };
 
-  const handleQuickLogin = (u, p) => {
-    setUsername(u);
-    setPassword(p);
-  };
-
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200/80 p-6 sm:p-8">
@@ -161,50 +156,6 @@ export default function LoginPage() {
             )}
           </button>
         </form>
-
-        {/* Quick Demo Login Preset */}
-        <div className="mt-6 pt-5 border-t border-slate-200">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2.5 text-center">
-            Pilihan Akun Demo (Klik untuk Isi):
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("owner", "admin123")}
-              className="p-2 rounded-lg border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-800 text-left transition-all cursor-pointer"
-            >
-              <p className="text-xs font-bold leading-tight">Owner</p>
-              <p className="text-[10px] text-purple-600 font-mono mt-0.5">owner</p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("kasir", "kasir123")}
-              className="p-2 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-left transition-all cursor-pointer"
-            >
-              <p className="text-xs font-bold leading-tight">Kasir</p>
-              <p className="text-[10px] text-emerald-600 font-mono mt-0.5">kasir</p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("optisien", "optik123")}
-              className="p-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 text-left transition-all cursor-pointer"
-            >
-              <p className="text-xs font-bold leading-tight">Refraksionis</p>
-              <p className="text-[10px] text-blue-600 font-mono mt-0.5">optisien</p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("teknisi", "lab123")}
-              className="p-2 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800 text-left transition-all cursor-pointer"
-            >
-              <p className="text-xs font-bold leading-tight">Teknisi Lab</p>
-              <p className="text-[10px] text-amber-600 font-mono mt-0.5">teknisi</p>
-            </button>
-          </div>
-        </div>
 
         {/* Footer */}
         <div className="mt-6 text-center text-xs text-slate-400">
