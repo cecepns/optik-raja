@@ -639,3 +639,96 @@ export function exportPrescriptionsToExcel(prescriptions, periodLabel, customFil
   XLSX.writeFile(wb, fileName);
   return fileName;
 }
+
+// ==========================================
+// 4. TRANSACTION BULK EXPORT UTILITIES
+// ==========================================
+
+/**
+ * Exports transactions array to a formatted Excel file
+ */
+export function exportTransactionsToExcel(transactions, periodLabel, customFilename) {
+  const wb = XLSX.utils.book_new();
+
+  const headers = [
+    "No",
+    "Nomor Nota",
+    "Tanggal & Waktu",
+    "Nama Pelanggan",
+    "Nomor Telepon",
+    "Kasir / Petugas",
+    "Penjamin",
+    "Total Tagihan (Rp)",
+    "Diskon (Rp)",
+    "Subsidi BPJS (Rp)",
+    "Terbayar (Rp)",
+    "Sisa Piutang (Rp)",
+    "Status Bayar",
+    "Metode Bayar",
+    "Status Pesanan",
+    "Rincian Produk",
+    "Catatan",
+  ];
+
+  const rows = (transactions || []).map((t, idx) => {
+    const isBpjs = Number(t.bpjs_subsidy) > 0;
+    const penjamin = isBpjs ? "BPJS" : "Umum";
+    const labStatus = t.lab_status || (t.payment_status === "Lunas" ? "Selesai" : "Diproses");
+
+    return [
+      idx + 1,
+      t.invoice_number || "-",
+      t.transaction_date ? formatDateTime(t.transaction_date) : "-",
+      t.customer_name || "-",
+      t.customer_phone || "-",
+      t.employee_name || "-",
+      penjamin,
+      parseFloat(t.grand_total || 0),
+      parseFloat(t.discount_amount || 0),
+      parseFloat(t.bpjs_subsidy || 0),
+      parseFloat(t.paid_amount || 0),
+      parseFloat(t.remaining_amount || 0),
+      t.payment_status || "Lunas",
+      t.payment_method || "Tunai",
+      labStatus,
+      t.items_summary || "-",
+      t.notes || "-",
+    ];
+  });
+
+  const wsData = [
+    ["OPTIK RAJA OFFICIAL"],
+    ["REKAP DAFTAR TRANSAKSI & NOTA PENJUALAN"],
+    [`Periode: ${periodLabel || "Semua Data"}   |   Total Data: ${transactions.length} transaksi   |   Tanggal Ekspor: ${formatDateTime(new Date())}`],
+    [],
+    headers,
+    ...rows,
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  ws["!cols"] = [
+    { wch: 6 },  // No
+    { wch: 20 }, // Nomor Nota
+    { wch: 20 }, // Tanggal & Waktu
+    { wch: 24 }, // Nama Pelanggan
+    { wch: 18 }, // Telepon
+    { wch: 20 }, // Kasir
+    { wch: 14 }, // Penjamin
+    { wch: 18 }, // Tagihan
+    { wch: 14 }, // Diskon
+    { wch: 16 }, // Subsidi BPJS
+    { wch: 16 }, // Terbayar
+    { wch: 16 }, // Sisa Piutang
+    { wch: 16 }, // Status Bayar
+    { wch: 18 }, // Metode Bayar
+    { wch: 20 }, // Status Pesanan
+    { wch: 36 }, // Rincian Produk
+    { wch: 30 }, // Catatan
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, "Daftar Transaksi");
+  const fileName = customFilename || createFileName("Daftar_Transaksi_Optik_Raja");
+  XLSX.writeFile(wb, fileName);
+  return fileName;
+}

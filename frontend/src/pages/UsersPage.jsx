@@ -57,7 +57,7 @@ export default function UsersPage() {
     username: "",
     email: "",
     password: "",
-    role: "Kasir",
+    role: "Admin",
     employee_id: "",
     phone: "",
     is_active: 1,
@@ -132,7 +132,7 @@ export default function UsersPage() {
       username: "",
       email: "",
       password: "",
-      role: "Kasir",
+      role: "Admin",
       employee_id: "",
       phone: "",
       is_active: 1,
@@ -149,7 +149,7 @@ export default function UsersPage() {
       username: user.username || "",
       email: user.email || "",
       password: "", // empty by default unless user wants to change
-      role: user.role || "Kasir",
+      role: user.role || "Admin",
       employee_id: user.employee_id || "",
       phone: user.phone || "",
       is_active: user.is_active !== undefined ? user.is_active : 1,
@@ -235,12 +235,10 @@ export default function UsersPage() {
     switch (role) {
       case "Owner":
         return "bg-purple-50 text-purple-700 border-purple-200";
-      case "Kasir":
-        return "bg-emerald-50 text-emerald-700 border-emerald-200";
-      case "Refraksionis Optisien":
+      case "Supervisor":
+        return "bg-indigo-50 text-indigo-700 border-indigo-200";
+      case "Admin":
         return "bg-blue-50 text-blue-700 border-blue-200";
-      case "Teknisi Lab":
-        return "bg-amber-50 text-amber-700 border-amber-200";
       default:
         return "bg-slate-100 text-slate-700 border-slate-200";
     }
@@ -260,8 +258,8 @@ export default function UsersPage() {
   // Calculate Summary KPI Stats
   const totalUsersCount = pagination.total || users.length;
   const ownerCount = users.filter((u) => u.role === "Owner").length;
-  const kasirCount = users.filter((u) => u.role === "Kasir").length;
-  const clinicalCount = users.filter((u) => u.role === "Refraksionis Optisien" || u.role === "Teknisi Lab").length;
+  const supervisorCount = users.filter((u) => u.role === "Supervisor").length;
+  const adminCount = users.filter((u) => u.role === "Admin" || u.role === "Kasir").length;
 
   return (
     <div className="space-y-6">
@@ -313,7 +311,7 @@ export default function UsersPage() {
 
         <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-purple-600">Owner & Admin</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-purple-600">Owner</p>
             <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">{ownerCount}</h3>
             <span className="text-xs text-slate-400 mt-0.5 inline-block">Hak Akses Penuh</span>
           </div>
@@ -324,22 +322,22 @@ export default function UsersPage() {
 
         <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-emerald-600">Kasir Toko</p>
-            <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">{kasirCount}</h3>
-            <span className="text-xs text-slate-400 mt-0.5 inline-block">Operator POS</span>
+            <p className="text-xs font-bold uppercase tracking-wider text-indigo-600">Supervisor</p>
+            <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">{supervisorCount}</h3>
+            <span className="text-xs text-slate-400 mt-0.5 inline-block">Pengawas Toko</span>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
             <UserCheck className="w-6 h-6" />
           </div>
         </div>
 
         <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-cyan-600">RO & Lab Teknisi</p>
-            <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">{clinicalCount}</h3>
-            <span className="text-xs text-slate-400 mt-0.5 inline-block">Klinis & Produksi</span>
+            <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Admin</p>
+            <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">{adminCount}</h3>
+            <span className="text-xs text-slate-400 mt-0.5 inline-block">Kasir & Operasional</span>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
             <KeyRound className="w-6 h-6" />
           </div>
         </div>
@@ -382,10 +380,9 @@ export default function UsersPage() {
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:bg-white focus:border-blue-600 focus:ring-4 focus:ring-blue-500/10 transition-all shadow-xs"
             >
               <option value="">Semua Role Akses</option>
-              <option value="Owner">Owner / Administrator</option>
-              <option value="Kasir">Kasir</option>
-              <option value="Refraksionis Optisien">Refraksionis Optisien</option>
-              <option value="Teknisi Lab">Teknisi Lab</option>
+              <option value="Owner">Owner</option>
+              <option value="Supervisor">Supervisor</option>
+              <option value="Admin">Admin</option>
             </select>
           </div>
 
@@ -682,10 +679,9 @@ export default function UsersPage() {
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-base font-semibold text-slate-900 focus:bg-white focus:border-blue-600 focus:ring-4 focus:ring-blue-500/10 font-medium"
               >
-                <option value="Kasir">Kasir (Transaksi & Pelanggan)</option>
-                <option value="Refraksionis Optisien">Refraksionis Optisien (Rekam Medis & Resep)</option>
-                <option value="Teknisi Lab">Teknisi Lab (Status Lab Fasetting)</option>
-                <option value="Owner">Owner (Akses Seluruh Menu & Laporan)</option>
+                <option value="Admin">Admin</option>
+                <option value="Supervisor">Supervisor</option>
+                <option value="Owner">Owner</option>
               </select>
             </div>
 

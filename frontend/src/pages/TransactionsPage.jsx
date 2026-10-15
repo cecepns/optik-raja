@@ -12,19 +12,47 @@ import {
   Minus,
   Package,
   MessageCircle,
+  FileSpreadsheet,
+  Loader2,
+  ChevronDown,
+  XCircle,
+  Check,
+  Lock,
+  Clock,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
 import { API_ENDPOINTS } from "@/utils/endpoints";
 import { formatDate, formatDateTime, formatRupiah, formatDiopter } from "@/utils/formatters";
+import { exportTransactionsToExcel } from "@/utils/bulkDataHandler";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useApp } from "@/context/AppContext";
-import Table from "@/components/common/Table";
 import Pagination from "@/components/common/Pagination";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ReceiptPrintModal from "@/components/print/ReceiptPrintModal";
 import { sendWhatsAppMessage, buildTransactionWhatsAppMessage } from "@/utils/whatsapp";
+
+// Helper date format: "14 Okt 2026 | 17:11:24"
+const formatTransactionDateTime = (dateString) => {
+  if (!dateString) return "-";
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+  const d = new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+  const time = date
+    .toLocaleTimeString("id-ID", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    })
+    .replace(/\./g, ":");
+  return `${d} | ${time}`;
+};
 
 export default function TransactionsPage() {
   const { settings } = useApp();
@@ -38,7 +66,20 @@ export default function TransactionsPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 350);
+
+  // Filter dropdowns & Period (Matching Client Reference)
   const [statusFilter, setStatusFilter] = useState("");
+  const [penjaminFilter, setPenjaminFilter] = useState("");
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [summaryStats, setSummaryStats] = useState({ total: 0, bpjs: 0, umum: 0 });
+
+  // Export state
+  const [isExporting, setIsExporting] = useState(false);
 
   // Print Receipt Modal
   const [selectedTrxForPrint, setSelectedTrxForPrint] = useState(null);
@@ -56,7 +97,7 @@ export default function TransactionsPage() {
   const [payNotes, setPayNotes] = useState("");
   const [isSubmittingPay, setIsSubmittingPay] = useState(false);
 
-  // Lists for Editing
+  // Lists for Editing & Quick Select
   const [customers, setCustomers] = useState([]);
   const [employees, setEmployees] = useState([]);
 
@@ -73,8 +114,11 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     fetchTransactions();
+  }, [page, limit, debouncedSearch, statusFilter, penjaminFilter, startDate, endDate]);
+
+  useEffect(() => {
     loadCustomersAndEmployees();
-  }, [page, limit, debouncedSearch, statusFilter]);
+  }, []);
 
   const loadCustomersAndEmployees = async () => {
     try {
@@ -102,6 +146,9 @@ export default function TransactionsPage() {
         search: debouncedSearch,
       };
       if (statusFilter) params.payment_status = statusFilter;
+      if (penjaminFilter) params.penjamin = penjaminFilter;
+      if (startDate) params.date_start = startDate;
+      if (endDate) params.date_end = endDate;
 
       const [res, rxRes] = await Promise.allSettled([
         request.get(API_ENDPOINTS.TRANSACTIONS.LIST, params),
@@ -109,15 +156,23 @@ export default function TransactionsPage() {
       ]);
 
       if (res.status === "fulfilled" && res.value?.success) {
-        setTransactions(res.value.data);
-        setTotalPages(res.value.pagination.totalPages);
-        setTotalItems(res.value.pagination.total);
+        setTransactions(res.value.data || []);
+        setTotalPages(res.value.pagination?.totalPages || 1);
+        setTotalItems(res.value.pagination?.total || 0);
+        if (res.value.summary) {
+          setSummaryStats(res.value.summary);
+        } else {
+          setSummaryStats({
+            total: res.value.pagination?.total || 0,
+            bpjs: (res.value.data || []).filter((t) => Number(t.bpjs_subsidy) > 0).length,
+            umum: (res.value.data || []).filter((t) => !t.bpjs_subsidy || Number(t.bpjs_subsidy) <= 0).length,
+          });
+        }
       }
 
       if (rxRes.status === "fulfilled" && rxRes.value?.data) {
         const map = {};
         rxRes.value.data.forEach((rx) => {
-          // Keep newest prescription for each customer
           if (!map[rx.customer_id]) {
             map[rx.customer_id] = rx;
           }
@@ -131,9 +186,81 @@ export default function TransactionsPage() {
     }
   };
 
+  const handleResetFilters = () => {
+    setSearch("");
+    setStatusFilter("");
+    setPenjaminFilter("");
+    setStartDate("");
+    setEndDate("");
+    setPage(1);
+    toast.success("Filter transaksi di-reset ke semua data");
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const params = {};
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (statusFilter) params.payment_status = statusFilter;
+      if (penjaminFilter) params.penjamin = penjaminFilter;
+      if (startDate) params.date_start = startDate;
+      if (endDate) params.date_end = endDate;
+
+      const res = await request.get(API_ENDPOINTS.TRANSACTIONS.EXPORT, params);
+      if (res?.success && res?.data) {
+        if (res.data.length === 0) {
+          toast.error("Tidak ada data transaksi untuk diekspor");
+          return;
+        }
+        const periodLabel =
+          startDate && endDate
+            ? `${formatDate(startDate)} s/d ${formatDate(endDate)}`
+            : startDate
+            ? `Mulai ${formatDate(startDate)}`
+            : endDate
+            ? `Sampai ${formatDate(endDate)}`
+            : "Semua Waktu";
+
+        const fileName = exportTransactionsToExcel(res.data, periodLabel);
+        toast.success(`Berhasil mengekspor ${res.data.length} transaksi (${fileName})!`);
+      }
+    } catch (err) {
+      console.error("Gagal ekspor transaksi:", err);
+      toast.error(err.message || "Gagal mengekspor data transaksi");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Quick Change Employee in Card Action Bar
+  const handleQuickChangeEmployee = async (trxId, newEmployeeId) => {
+    try {
+      const res = await request.put(API_ENDPOINTS.TRANSACTIONS.UPDATE(trxId), {
+        employee_id: Number(newEmployeeId),
+      });
+      if (res?.success) {
+        toast.success("Petugas kasir berhasil diperbarui");
+        setTransactions((prev) =>
+          prev.map((t) => {
+            if (t.id === trxId) {
+              const emp = employees.find((e) => e.id === Number(newEmployeeId));
+              return {
+                ...t,
+                employee_id: Number(newEmployeeId),
+                employee_name: emp ? emp.name : t.employee_name,
+              };
+            }
+            return t;
+          })
+        );
+      }
+    } catch (err) {
+      toast.error(err.message || "Gagal mengubah petugas kasir");
+    }
+  };
+
   const handleOpenPrint = async (trx) => {
     try {
-      // Get complete transaction with items
       const res = await request.get(API_ENDPOINTS.TRANSACTIONS.DETAIL(trx.id));
       if (res?.data) {
         setSelectedTrxForPrint(res.data);
@@ -148,7 +275,6 @@ export default function TransactionsPage() {
   const handleViewPrescription = async (trx, targetRxId) => {
     let rxId = targetRxId || trx.prescription_id || customerRxMap[trx.customer_id]?.id;
 
-    // Fallback: If not resolved, query backend specifically for this customer
     if (!rxId && trx.customer_id) {
       try {
         const res = await request.get(API_ENDPOINTS.PRESCRIPTIONS.LIST, {
@@ -226,7 +352,6 @@ export default function TransactionsPage() {
       const res = await request.get(API_ENDPOINTS.TRANSACTIONS.DETAIL(trx.id));
       const data = res?.data || trx;
 
-      // Load customer's prescriptions
       let rxOptions = [];
       if (data.customer_id) {
         try {
@@ -520,220 +645,339 @@ export default function TransactionsPage() {
     }
   };
 
-  const headers = [
-    { label: "Nomor Nota & Waktu", align: "left" },
-    { label: "Pelanggan", align: "left" },
-    { label: "Total Tagihan", align: "right" },
-    { label: "Terbayar (DP)", align: "right" },
-    { label: "Sisa Piutang", align: "right" },
-    { label: "Status Bayar", align: "center" },
-    { label: "Rekam Medis", align: "center" },
-    { label: "Aksi", align: "center" },
-  ];
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-gray-200">
-        <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-blue-600" />
-            Daftar Transaksi & Rekap Nota Penjualan
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Rekap transaksi kasir optik, manajemen pembayaran DP, pelunasan sisa tagihan, dan cetak struk
-          </p>
-        </div>
+    <div className="space-y-3.5 sm:space-y-4 max-w-4xl mx-auto">
+      {/* 1. Search Bar (Matching Client Screenshot) */}
+      <div className="relative w-full">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Cari Nota, Nama..."
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+          className="w-full pl-10 pr-4 py-2.5 text-xs bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs placeholder:text-gray-400"
+        />
       </div>
 
-      {/* Toolbar Filter */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto flex-1">
-          <div className="relative w-full sm:w-80">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Cari nomor nota, nama pelanggan, no telepon..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-2 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
-            />
-          </div>
-
+      {/* 2. Dropdown Filter Row: Status & Penjamin (Matching Screenshot) */}
+      <div className="grid grid-cols-2 gap-2 w-full">
+        {/* Status Dropdown */}
+        <div className="relative w-full">
           <select
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
               setPage(1);
             }}
-            className="w-full sm:w-auto px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
+            className="w-full px-3.5 py-2.5 text-xs bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-700 shadow-2xs appearance-none cursor-pointer pr-9"
           >
-            <option value="">Semua Status Bayar</option>
-            <option value="Lunas">Status: Lunas</option>
-            <option value="DP">Status: Uang Muka (DP)</option>
-            <option value="Belum Lunas">Status: Belum Lunas</option>
+            <option value="">Semua Status</option>
+            <option value="Lunas">Lunas</option>
+            <option value="DP">DP (Uang Muka)</option>
+            <option value="Belum Lunas">Belum Lunas</option>
           </select>
+          <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
-        <div className="text-xs text-gray-500">
-          Total Transaksi: <span className="font-bold text-gray-800">{totalItems}</span>
+        {/* Penjamin Dropdown */}
+        <div className="relative w-full">
+          <select
+            value={penjaminFilter}
+            onChange={(e) => {
+              setPenjaminFilter(e.target.value);
+              setPage(1);
+            }}
+            className="w-full px-3.5 py-2.5 text-xs bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-700 shadow-2xs appearance-none cursor-pointer pr-9"
+          >
+            <option value="">Semua Penjamin</option>
+            <option value="Umum">Umum</option>
+            <option value="BPJS">BPJS</option>
+          </select>
+          <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
       </div>
 
-      {/* Transactions Table */}
-      <Table
-        headers={headers}
-        isLoading={isLoading}
-        isEmpty={transactions.length === 0}
-        emptyMessage="Belum ada transaksi ditemukan."
+      {/* 3. Export Button (Full Width Green, Matching Screenshot) */}
+      <button
+        type="button"
+        onClick={handleExport}
+        disabled={isLoading || isExporting}
+        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-[#107c41] hover:bg-[#0c6334] active:scale-[0.99] text-white rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer disabled:opacity-50"
       >
-        {transactions.map((trx) => (
-          <tr key={trx.id} className="hover:bg-gray-50/70 transition-colors">
-            {/* Invoice & Date */}
-            <td className="px-4 py-3 whitespace-nowrap">
-              <div className="font-bold text-xs text-blue-900 font-mono">{trx.invoice_number}</div>
-              <div className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5">
-                <Calendar className="w-3 h-3 text-gray-400" />
-                {formatDateTime(trx.transaction_date)}
-              </div>
-              <div className="text-[10px] text-gray-400">Kasir: {trx.employee_name}</div>
-            </td>
+        {isExporting ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <FileSpreadsheet className="w-4 h-4 shrink-0" />
+        )}
+        <span>Export</span>
+      </button>
 
-            {/* Customer */}
-            <td className="px-4 py-3 whitespace-nowrap">
-              <div className="font-bold text-xs text-gray-900">{trx.customer_name}</div>
-              <div className="text-[11px] text-gray-500">{trx.customer_phone}</div>
-              {trx.customer_code && (
-                <span className="text-[10px] text-gray-400 font-mono">{trx.customer_code}</span>
-              )}
-            </td>
+      {/* 4. Periode Tanggal Row (Matching Screenshot) */}
+      <div className="flex items-center gap-2 text-xs bg-white p-2 sm:p-2.5 rounded-lg border border-gray-200 shadow-2xs">
+        <div className="flex items-center gap-1.5 text-gray-700 font-semibold shrink-0">
+          <Calendar className="w-4 h-4 text-gray-500" />
+          <span>Periode:</span>
+        </div>
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => {
+            setStartDate(e.target.value);
+            setPage(1);
+          }}
+          className="flex-1 px-2.5 py-1 text-xs bg-white border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-500 font-medium text-gray-800"
+        />
+        <span className="text-gray-500 font-medium shrink-0">s/d</span>
+        <input
+          type="date"
+          value={endDate}
+          onChange={(e) => {
+            setEndDate(e.target.value);
+            setPage(1);
+          }}
+          className="flex-1 px-2.5 py-1 text-xs bg-white border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-500 font-medium text-gray-800"
+        />
+      </div>
 
-            {/* Grand Total */}
-            <td className="px-4 py-3 text-right whitespace-nowrap text-xs font-bold text-gray-900">
-              {formatRupiah(trx.grand_total)}
-              {trx.bpjs_subsidy > 0 && (
-                <div className="text-[10px] text-emerald-600 font-normal">
-                  BPJS: {formatRupiah(trx.bpjs_subsidy)}
-                </div>
-              )}
-            </td>
+      {/* 5. Reset Filter & Summary Badges Row (Matching Screenshot) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={handleResetFilters}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 active:scale-95 text-gray-700 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+        >
+          <XCircle className="w-3.5 h-3.5 text-gray-400" />
+          <span>Reset</span>
+        </button>
 
-            {/* Paid / DP */}
-            <td className="px-4 py-3 text-right whitespace-nowrap text-xs font-semibold text-gray-700">
-              {formatRupiah(trx.paid_amount)}
-              <div className="text-[10px] text-gray-400">{trx.payment_method}</div>
-            </td>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 shadow-2xs">
+          <span>{totalItems} transaksi</span>
+          <span className="text-gray-300">·</span>
+          <span className="inline-flex items-center gap-1.5 text-emerald-700 font-semibold">
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>{summaryStats.bpjs ?? 0} BPJS</span>
+          </span>
+          <span className="text-gray-300">·</span>
+          <span className="inline-flex items-center gap-1.5 text-blue-700 font-semibold">
+            <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+            <span>{summaryStats.umum ?? 0} Umum</span>
+          </span>
+        </div>
+      </div>
 
-            {/* Remaining (Piutang) */}
-            <td className="px-4 py-3 text-right whitespace-nowrap text-xs font-bold">
-              {trx.remaining_amount > 0 ? (
-                <span className="text-red-600">{formatRupiah(trx.remaining_amount)}</span>
-              ) : (
-                <span className="text-gray-400">-</span>
-              )}
-            </td>
+      {/* 6. Transaction Cards List (Matching Client Screenshot) */}
+      <div className="space-y-3 pt-1">
+        {isLoading ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-2xs">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-2" />
+            <p className="text-xs text-gray-500 font-medium">Memuat data transaksi...</p>
+          </div>
+        ) : transactions.length === 0 ? (
+          <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center shadow-2xs">
+            <Receipt className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+            <p className="text-xs font-bold text-gray-700">Belum ada transaksi ditemukan</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              Coba sesuaikan kata kunci pencarian atau rentang periode tanggal
+            </p>
+          </div>
+        ) : (
+          transactions.map((trx, idx) => {
+            const isBpjs = Number(trx.bpjs_subsidy) > 0;
+            const orderStatus =
+              trx.lab_status || (trx.payment_status === "Lunas" ? "Selesai" : "Diproses");
+            const itemNumber = (page - 1) * limit + idx + 1;
 
-            {/* Payment Status */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
-              <span
-                className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                  trx.payment_status === "Lunas"
-                    ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                    : "bg-amber-100 text-amber-800 border border-amber-200"
-                }`}
+            return (
+              <div
+                key={trx.id}
+                className="bg-white rounded-xl border border-emerald-100/90 hover:border-blue-200 transition-all shadow-2xs overflow-hidden"
               >
-                {trx.payment_status}
-              </span>
-            </td>
+                {/* Card Body */}
+                <div className="p-3.5 sm:p-4 space-y-2 text-xs">
+                  {/* Row 1: No Nota, Date & Time, Index Number */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-500 font-medium">No Nota</span>
+                      <span className="font-bold text-blue-600 font-mono text-xs sm:text-sm">
+                        {trx.invoice_number}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[11px] text-gray-400 font-medium">
+                        {formatTransactionDateTime(trx.transaction_date)}
+                      </span>
+                      <span className="text-xs font-semibold text-gray-400">
+                        {itemNumber}
+                      </span>
+                    </div>
+                  </div>
 
-            {/* Prescription Button (Read-only modal as specified in SRS Modul 4) */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
-              {(() => {
-                const effectiveRxId =
-                  trx.prescription_id || customerRxMap[trx.customer_id]?.id;
-                if (effectiveRxId) {
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => handleViewPrescription(trx, effectiveRxId)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 active:scale-95 border border-blue-200 rounded-lg transition-all cursor-pointer shadow-2xs"
-                      title="Lihat Rekam Medis Pasien"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Rekam Medis</span>
-                    </button>
-                  );
-                }
-                return <span className="text-gray-400 text-xs">Tanpa Rekam Medis</span>;
-              })()}
-            </td>
+                  {/* Row 2: Pelanggan, Name, Penjamin Badge */}
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="text-gray-500 font-medium w-24 shrink-0">Pelanggan</span>
+                    <span className="font-bold text-gray-900 text-xs sm:text-sm text-center flex-1 truncate px-2">
+                      {trx.customer_name}
+                    </span>
+                    <div className="w-24 shrink-0 flex justify-end">
+                      {isBpjs ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                          <span>BPJS</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                          <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                          <span>Umum</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
-            {/* Action Buttons */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
-              <div className="flex items-center justify-center gap-1.5">
-                {/* Pelunasan Button for DP / Belum Lunas */}
-                {trx.payment_status !== "Lunas" && trx.remaining_amount > 0 && (
+                  {/* Row 3: Tagihan, Amount, Payment Status Badge */}
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="text-gray-500 font-medium w-24 shrink-0">Tagihan</span>
+                    <span className="font-bold text-gray-900 text-xs sm:text-sm text-center flex-1 px-2">
+                      {formatRupiah(trx.grand_total)}
+                    </span>
+                    <div className="w-24 shrink-0 flex justify-end">
+                      {trx.payment_status === "Lunas" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-700 text-white shadow-2xs">
+                          <Check className="w-3 h-3 stroke-[3]" />
+                          <span>Lunas</span>
+                        </span>
+                      ) : trx.payment_status === "DP" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500 text-white shadow-2xs">
+                          <span>DP</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-600 text-white shadow-2xs">
+                          <span>Belum Lunas</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Row 4: Status Pesanan, Order Status Badge */}
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="text-gray-500 font-medium">Status Pesanan</span>
+                    <div className="flex justify-end">
+                      {orderStatus === "Selesai" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-700 text-white shadow-2xs">
+                          <Check className="w-3 h-3 stroke-[3]" />
+                          <span>Selesai</span>
+                        </span>
+                      ) : orderStatus === "Siap Diambil" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500 text-white shadow-2xs">
+                          <Package className="w-3 h-3" />
+                          <span>Siap Diambil</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-600 text-white shadow-2xs">
+                          <Clock className="w-3 h-3" />
+                          <span>Proses Lab</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Footer / Action Bar (Locked when Selesai) */}
+                <div className="bg-gray-50/80 px-3 py-2 border-t border-gray-100 flex flex-wrap items-center justify-end gap-1.5">
+                  {orderStatus === "Selesai" ? (
+                    /* Locked State for Selesai: Show read-only employee and lock badge */
+                    <div className="mr-auto flex items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold text-slate-700 bg-slate-200/80 rounded-md">
+                        <Lock className="w-3 h-3 text-emerald-600" />
+                        <span>{trx.employee_name || "Kasir"}</span>
+                      </span>
+                      <span className="text-[10px] text-gray-400 font-medium hidden sm:inline">
+                        (Terkunci)
+                      </span>
+                    </div>
+                  ) : (
+                    /* Editable State: Kasir / Petugas Selector */
+                    <div className="relative inline-block mr-auto">
+                      <select
+                        value={trx.employee_id}
+                        onChange={(e) => handleQuickChangeEmployee(trx.id, e.target.value)}
+                        className="appearance-none pl-2.5 pr-6 py-1 text-xs font-semibold text-blue-700 bg-white border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs"
+                        title="Ubah Petugas Kasir"
+                      >
+                        {employees.map((emp) => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.name}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="w-3.5 h-3.5 text-blue-500 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+                  )}
+
+                  {/* Resep Button (Always Available) */}
                   <button
                     type="button"
-                    onClick={() => handleOpenPay(trx)}
-                    className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-2xs transition-colors"
-                    title="Pelunasan Sisa Tagihan"
+                    onClick={() => handleViewPrescription(trx)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 active:scale-95 rounded-lg shadow-2xs transition-all cursor-pointer"
+                    title="Lihat Rekam Medis Pasien"
                   >
-                    <DollarSign className="w-3.5 h-3.5" />
-                    <span>Pelunasan</span>
+                    <Eye className="w-3.5 h-3.5 text-gray-500" />
+                    <span>Resep</span>
                   </button>
-                )}
 
-                {/* Print Receipt */}
-                <button
-                  type="button"
-                  onClick={() => handleOpenPrint(trx)}
-                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                  title="Cetak Struk Nota"
-                >
-                  <Printer className="w-4 h-4" />
-                </button>
+                  {/* Print Button (Always Available) */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenPrint(trx)}
+                    className="p-1.5 text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 active:scale-95 rounded-lg shadow-2xs transition-all cursor-pointer"
+                    title="Cetak Struk Nota"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                  </button>
 
-                {/* Send Receipt via WhatsApp */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const msg = buildTransactionWhatsAppMessage(trx, settings);
-                    sendWhatsAppMessage(trx.customer_phone, msg);
-                  }}
-                  className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                  title="Kirim Nota via WhatsApp"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                </button>
+                  {/* WhatsApp Button (Always Available) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const msg = buildTransactionWhatsAppMessage(trx, settings);
+                      sendWhatsAppMessage(trx.customer_phone, msg);
+                    }}
+                    className="p-1.5 text-emerald-600 bg-white border border-gray-300 hover:bg-emerald-50 active:scale-95 rounded-lg shadow-2xs transition-all cursor-pointer"
+                    title="Kirim Nota via WhatsApp"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                  </button>
 
-                {/* Edit Transaction */}
-                <button
-                  type="button"
-                  onClick={() => handleOpenEdit(trx)}
-                  className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
-                  title="Edit Transaksi"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
+                  {/* Edit & Delete Buttons: Only visible if NOT Selesai */}
+                  {orderStatus !== "Selesai" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(trx)}
+                        className="p-1.5 text-amber-600 bg-white border border-gray-300 hover:bg-amber-50 active:scale-95 rounded-lg shadow-2xs transition-all cursor-pointer"
+                        title="Edit Data Transaksi"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
 
-                {/* Delete Transaction */}
-                <button
-                  type="button"
-                  onClick={() => setDeleteTrx(trx)}
-                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                  title="Hapus Transaksi"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTrx(trx)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 bg-white border border-gray-200 hover:border-red-300 active:scale-95 rounded-lg shadow-2xs transition-all cursor-pointer"
+                        title="Hapus Transaksi"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-            </td>
-          </tr>
-        ))}
-      </Table>
+            );
+          })
+        )}
+      </div>
 
       {/* Pagination Footer */}
       <Pagination
@@ -746,20 +990,24 @@ export default function TransactionsPage() {
           setLimit(l);
           setPage(1);
         }}
+        itemName="transaksi"
+        compact={true}
       />
 
-      {/* Read-Only Prescription Modal (SRS Modul 4 requirement) */}
+      {/* ==========================================
+          READ-ONLY PRESCRIPTION MODAL (SRS MODUL 4)
+         ========================================== */}
       <Modal
         isOpen={isPrescriptionModalOpen}
         onClose={() => setIsPrescriptionModalOpen(false)}
         title="Rekam Medis Pasien (Mode Hanya-Baca)"
-        subtitle={`Pasien: ${prescriptionModalData?.customer_name} • Pemeriksa: ${prescriptionModalData?.examiner_name}`}
+        subtitle={`Pasien: ${prescriptionModalData?.customer_name || "-"} • Pemeriksa: ${prescriptionModalData?.examiner_name || "-"}`}
         maxWidth="max-w-2xl"
         footer={
           <button
             type="button"
             onClick={() => setIsPrescriptionModalOpen(false)}
-            className="px-4 py-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg"
+            className="px-4 py-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg cursor-pointer"
           >
             Tutup
           </button>
@@ -828,7 +1076,9 @@ export default function TransactionsPage() {
         )}
       </Modal>
 
-      {/* Pelunasan Sisa Tagihan Modal */}
+      {/* ==========================================
+          PELUNASAN SISA TAGIHAN DP MODAL
+         ========================================== */}
       <Modal
         isOpen={!!payModalTrx}
         onClose={() => setPayModalTrx(null)}
@@ -840,7 +1090,7 @@ export default function TransactionsPage() {
             <button
               type="button"
               onClick={() => setPayModalTrx(null)}
-              className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg"
+              className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer"
             >
               Batal
             </button>
@@ -848,7 +1098,7 @@ export default function TransactionsPage() {
               type="button"
               onClick={handleProcessPayment}
               disabled={isSubmittingPay}
-              className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs disabled:opacity-50"
+              className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs disabled:opacity-50 cursor-pointer"
             >
               {isSubmittingPay ? "Memproses..." : "Konfirmasi Pelunasan"}
             </button>
@@ -892,7 +1142,7 @@ export default function TransactionsPage() {
             <select
               value={payMethod}
               onChange={(e) => setPayMethod(e.target.value)}
-              className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-semibold"
+              className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-semibold cursor-pointer"
             >
               <option value="Tunai">Tunai</option>
               <option value="Transfer">Transfer Bank</option>
@@ -915,14 +1165,18 @@ export default function TransactionsPage() {
         </form>
       </Modal>
 
-      {/* Receipt Print Modal */}
+      {/* ==========================================
+          RECEIPT PRINT MODAL
+         ========================================== */}
       <ReceiptPrintModal
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
         transaction={selectedTrxForPrint}
       />
 
-      {/* Delete Confirmation Dialog */}
+      {/* ==========================================
+          DELETE CONFIRMATION DIALOG
+         ========================================== */}
       <ConfirmDialog
         isOpen={!!deleteTrx}
         onClose={() => setDeleteTrx(null)}
@@ -933,7 +1187,9 @@ export default function TransactionsPage() {
         confirmText="Ya, Hapus Transaksi"
       />
 
-      {/* Edit Transaction Modal */}
+      {/* ==========================================
+          EDIT TRANSACTION MODAL
+         ========================================== */}
       <Modal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
@@ -945,7 +1201,7 @@ export default function TransactionsPage() {
             <button
               type="button"
               onClick={() => setIsEditModalOpen(false)}
-              className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
             >
               Batal
             </button>
@@ -953,7 +1209,7 @@ export default function TransactionsPage() {
               type="button"
               onClick={handleSaveEdit}
               disabled={isSubmittingEdit}
-              className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50"
+              className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50 cursor-pointer"
             >
               <Pencil className="w-3.5 h-3.5" />
               {isSubmittingEdit ? "Menyimpan Perubahan..." : "Simpan Perubahan"}
@@ -992,7 +1248,7 @@ export default function TransactionsPage() {
                 <select
                   value={editFormData.customer_id}
                   onChange={(e) => handleCustomerChange(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
                 >
                   <option value="">-- Pilih Pelanggan --</option>
                   {customers.map((c) => (
@@ -1015,7 +1271,7 @@ export default function TransactionsPage() {
                       employee_id: Number(e.target.value),
                     }))
                   }
-                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
                 >
                   <option value="">-- Pilih Petugas --</option>
                   {employees.map((emp) => (
@@ -1038,7 +1294,7 @@ export default function TransactionsPage() {
                       prescription_id: e.target.value ? Number(e.target.value) : "",
                     }))
                   }
-                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
                 >
                   <option value="">Tanpa Rekam Medis</option>
                   {customerRxOptions.map((rx) => (
@@ -1076,7 +1332,7 @@ export default function TransactionsPage() {
                 <select
                   value={editFormData.payment_status}
                   onChange={(e) => handleStatusChange(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold"
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold cursor-pointer"
                 >
                   <option value="Lunas">Lunas</option>
                   <option value="DP">DP (Uang Muka)</option>
@@ -1096,7 +1352,7 @@ export default function TransactionsPage() {
                       payment_method: e.target.value,
                     }))
                   }
-                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium"
+                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
                 >
                   <option value="Tunai">Tunai</option>
                   <option value="Transfer Bank BCA">Transfer Bank BCA</option>
@@ -1149,7 +1405,7 @@ export default function TransactionsPage() {
                               type="button"
                               onClick={() => updateItemQty(idx, -1)}
                               disabled={item.quantity <= 1}
-                              className="p-1 hover:bg-white rounded text-gray-600 disabled:opacity-30 transition-colors"
+                              className="p-1 hover:bg-white rounded text-gray-600 disabled:opacity-30 transition-colors cursor-pointer"
                               title="Kurangi 1"
                             >
                               <Minus className="w-3 h-3" />
@@ -1160,7 +1416,7 @@ export default function TransactionsPage() {
                             <button
                               type="button"
                               onClick={() => updateItemQty(idx, 1)}
-                              className="p-1 hover:bg-white rounded text-gray-600 transition-colors"
+                              className="p-1 hover:bg-white rounded text-gray-600 transition-colors cursor-pointer"
                               title="Tambah 1"
                             >
                               <Plus className="w-3 h-3" />
@@ -1174,7 +1430,7 @@ export default function TransactionsPage() {
                           <button
                             type="button"
                             onClick={() => removeItem(idx)}
-                            className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                            className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors cursor-pointer"
                             title="Hapus produk dari nota"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

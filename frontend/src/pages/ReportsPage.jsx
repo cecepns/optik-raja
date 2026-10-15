@@ -550,7 +550,7 @@ export default function ReportsPage() {
               Laporan Perhitungan Komisi Pegawai, Kasir & Refraksionis (RO)
             </h3>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              Rincian komisi berdasarkan omzet nota penjualan dan skema insentif per pegawai
+              Rincian komisi penjualan per pegawai (komisi terhitung otomatis ketika status pesanan transaksi telah Selesai)
             </p>
           </div>
 

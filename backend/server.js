@@ -94,7 +94,7 @@ const initDatabaseTables = async () => {
         username VARCHAR(50) UNIQUE NOT NULL,
         email VARCHAR(100) UNIQUE,
         password VARCHAR(255) NOT NULL,
-        role ENUM('Owner', 'Kasir', 'Refraksionis Optisien', 'Teknisi Lab') NOT NULL DEFAULT 'Kasir',
+        role VARCHAR(50) NOT NULL DEFAULT 'Admin',
         employee_id INT DEFAULT NULL,
         phone VARCHAR(30),
         avatar VARCHAR(255) DEFAULT NULL,
@@ -105,21 +105,74 @@ const initDatabaseTables = async () => {
       )
     `);
 
+    // Modify roles in users and employees to VARCHAR(50) and migrate to Owner, Supervisor, Admin
+    try {
+      await pool.query('ALTER TABLE users MODIFY COLUMN role VARCHAR(50) NOT NULL DEFAULT "Admin"');
+      await pool.query('ALTER TABLE employees MODIFY COLUMN role VARCHAR(50) NOT NULL DEFAULT "Admin"');
+      await pool.query('UPDATE users SET role = "Supervisor" WHERE role IN ("Refraksionis Optisien", "supervisor")');
+      await pool.query('UPDATE users SET role = "Admin" WHERE role IN ("Kasir", "Teknisi Lab", "kasir", "teknisi")');
+      await pool.query('UPDATE employees SET role = "Supervisor" WHERE role IN ("Refraksionis Optisien", "supervisor")');
+      await pool.query('UPDATE employees SET role = "Admin" WHERE role IN ("Kasir", "Teknisi Lab", "kasir", "teknisi")');
+    } catch (e) {
+      // ignore
+    }
+
     const [rows] = await pool.query('SELECT COUNT(*) as count FROM users');
     if (rows[0].count === 0) {
       const hashOwner = bcrypt.hashSync('admin123', 10);
-      const hashKasir = bcrypt.hashSync('kasir123', 10);
-      const hashRO = bcrypt.hashSync('optik123', 10);
-      const hashLab = bcrypt.hashSync('lab123', 10);
+      const hashSupervisor = bcrypt.hashSync('optik123', 10);
+      const hashAdmin = bcrypt.hashSync('kasir123', 10);
 
       await pool.query(`
         INSERT INTO users (id, name, username, email, password, role, employee_id, phone, is_active) VALUES
         (1, 'Raja Pratama (Owner)', 'owner', 'owner@optikraja.com', ?, 'Owner', 1, '0811-2233-4455', 1),
-        (2, 'Budi Santoso, A.Md.RO', 'optisien', 'budi.ro@optikraja.com', ?, 'Refraksionis Optisien', 2, '0812-3344-5566', 1),
-        (3, 'Siti Rahmawati', 'kasir', 'siti.kasir@optikraja.com', ?, 'Kasir', 3, '0813-4455-6677', 1),
-        (4, 'Ahmad Fauzi', 'teknisi', 'fauzi.lab@optikraja.com', ?, 'Teknisi Lab', 4, '0815-5566-7788', 1)
-      `, [hashOwner, hashRO, hashKasir, hashLab]);
-      console.log('✓ Initial users seeded successfully');
+        (2, 'Budi Santoso (Supervisor)', 'supervisor', 'budi.spv@optikraja.com', ?, 'Supervisor', 2, '0812-3344-5566', 1),
+        (3, 'Siti Rahmawati (Admin)', 'admin', 'siti.admin@optikraja.com', ?, 'Admin', 3, '0813-4455-6677', 1)
+      `, [hashOwner, hashSupervisor, hashAdmin]);
+      console.log('✓ Initial users seeded successfully (Owner, Supervisor, Admin)');
+    }
+
+    // Ensure role_permissions column in settings table
+    try {
+      await pool.query('ALTER TABLE settings ADD COLUMN role_permissions JSON DEFAULT NULL');
+    } catch {
+      // column may exist
+    }
+
+    // Seed default role_permissions if empty
+    try {
+      const [sRows] = await pool.query('SELECT role_permissions FROM settings WHERE id = 1');
+      if (sRows.length > 0 && !sRows[0].role_permissions) {
+        const defaultPerms = JSON.stringify({
+          Supervisor: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products", "/expenses", "/reports"],
+          Admin: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products"]
+        });
+        await pool.query('UPDATE settings SET role_permissions = ? WHERE id = 1', [defaultPerms]);
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Ensure order_status column exists in transactions
+    try {
+      await pool.query("ALTER TABLE transactions ADD COLUMN order_status ENUM('Proses Lab', 'Siap Diambil', 'Selesai') NOT NULL DEFAULT 'Proses Lab'");
+    } catch {
+      // column may exist
+    }
+
+    // Ensure lab_orders status is simplified to 'Proses Lab', 'Siap Diambil', 'Selesai'
+    try {
+      await pool.query("ALTER TABLE lab_orders MODIFY COLUMN status ENUM('Proses Lab', 'Siap Diambil', 'Selesai') NOT NULL DEFAULT 'Proses Lab'");
+      await pool.query("UPDATE lab_orders SET status = 'Proses Lab' WHERE status IN ('Menunggu Pengerjaan', 'Pemotongan Lensa', 'Perakitan', 'Quality Control')");
+      await pool.query("UPDATE lab_orders SET status = 'Selesai' WHERE status = 'Selesai Diambil'");
+      // Sync transactions.order_status with lab_orders.status
+      await pool.query(`
+        UPDATE transactions t
+        JOIN lab_orders lo ON t.id = lo.transaction_id
+        SET t.order_status = lo.status
+      `);
+    } catch (e) {
+      // ignore
     }
 
     // Ensure image column exists in products table
@@ -221,6 +274,26 @@ app.post('/api/auth/login', async (req, res) => {
     const { password: _, ...userData } = user;
     const token = Buffer.from(`${user.id}:${user.username}:${Date.now()}`).toString('base64');
 
+    let rolePermissions = null;
+    try {
+      const [sRows] = await pool.query('SELECT role_permissions FROM settings WHERE id = 1');
+      if (sRows.length > 0 && sRows[0].role_permissions) {
+        rolePermissions = typeof sRows[0].role_permissions === 'string'
+          ? JSON.parse(sRows[0].role_permissions)
+          : sRows[0].role_permissions;
+      }
+    } catch (e) {
+      // ignore
+    }
+    if (!rolePermissions) {
+      rolePermissions = {
+        Supervisor: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products", "/expenses", "/reports"],
+        Admin: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products"]
+      };
+    }
+
+    userData.role_permissions = rolePermissions;
+
     res.json({
       success: true,
       message: 'Login berhasil. Selamat datang di Optik Raja!',
@@ -248,7 +321,26 @@ app.get('/api/auth/profile', async (req, res) => {
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan' });
     }
-    res.json({ success: true, data: rows[0] });
+
+    let rolePermissions = null;
+    try {
+      const [sRows] = await pool.query('SELECT role_permissions FROM settings WHERE id = 1');
+      if (sRows.length > 0 && sRows[0].role_permissions) {
+        rolePermissions = typeof sRows[0].role_permissions === 'string'
+          ? JSON.parse(sRows[0].role_permissions)
+          : sRows[0].role_permissions;
+      }
+    } catch (e) {
+      // ignore
+    }
+    if (!rolePermissions) {
+      rolePermissions = {
+        Supervisor: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products", "/expenses", "/reports"],
+        Admin: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products"]
+      };
+    }
+
+    res.json({ success: true, data: { ...rows[0], role_permissions: rolePermissions } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -424,7 +516,21 @@ app.get('/api/settings', async (req, res) => {
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Pengaturan tidak ditemukan' });
     }
-    res.json({ success: true, data: rows[0] });
+    const settingsData = { ...rows[0] };
+    if (typeof settingsData.role_permissions === 'string') {
+      try {
+        settingsData.role_permissions = JSON.parse(settingsData.role_permissions);
+      } catch (e) {
+        // ignore
+      }
+    }
+    if (!settingsData.role_permissions) {
+      settingsData.role_permissions = {
+        Supervisor: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products", "/expenses", "/reports"],
+        Admin: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products"]
+      };
+    }
+    res.json({ success: true, data: settingsData });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -432,16 +538,46 @@ app.get('/api/settings', async (req, res) => {
 
 app.put('/api/settings', async (req, res) => {
   try {
-    const { store_name, optician_permit_no, phone, address, receipt_footer, printer_paper_size } = req.body;
+    const { store_name, optician_permit_no, phone, address, receipt_footer, printer_paper_size, role_permissions } = req.body;
+    let updateFields = [
+      'store_name = ?',
+      'optician_permit_no = ?',
+      'phone = ?',
+      'address = ?',
+      'receipt_footer = ?',
+      'printer_paper_size = ?'
+    ];
+    let params = [store_name, optician_permit_no, phone, address, receipt_footer, printer_paper_size || '58mm'];
+
+    if (role_permissions !== undefined) {
+      updateFields.push('role_permissions = ?');
+      params.push(typeof role_permissions === 'object' ? JSON.stringify(role_permissions) : role_permissions);
+    }
+
+    params.push(1);
     await pool.query(
-      `UPDATE settings SET 
-        store_name = ?, optician_permit_no = ?, phone = ?, 
-        address = ?, receipt_footer = ?, printer_paper_size = ? 
-      WHERE id = 1`,
-      [store_name, optician_permit_no, phone, address, receipt_footer, printer_paper_size || '58mm']
+      `UPDATE settings SET ${updateFields.join(', ')} WHERE id = ?`,
+      params
     );
     const [rows] = await pool.query('SELECT * FROM settings WHERE id = 1 LIMIT 1');
-    res.json({ success: true, message: 'Pengaturan toko berhasil diperbarui', data: rows[0] });
+    const updated = { ...rows[0] };
+    if (typeof updated.role_permissions === 'string') {
+      try { updated.role_permissions = JSON.parse(updated.role_permissions); } catch {}
+    }
+    res.json({ success: true, message: 'Pengaturan toko berhasil diperbarui', data: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.put('/api/settings/permissions', async (req, res) => {
+  try {
+    const { permissions } = req.body;
+    if (!permissions || typeof permissions !== 'object') {
+      return res.status(400).json({ success: false, message: 'Data hak akses tidak valid' });
+    }
+    await pool.query('UPDATE settings SET role_permissions = ? WHERE id = 1', [JSON.stringify(permissions)]);
+    res.json({ success: true, message: 'Hak akses role berhasil disimpan', data: permissions });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1254,9 +1390,9 @@ app.delete('/api/prescriptions/:id', async (req, res) => {
 // ==========================================
 // 6. TRANSACTIONS & KASIR POS
 // ==========================================
-app.get('/api/transactions', async (req, res) => {
+app.get('/api/transactions/export', async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '', payment_status = '', date_start = '', date_end = '' } = req.query;
+    const { search = '', payment_status = '', penjamin = '', date_start = '', date_end = '' } = req.query;
     let whereConditions = ['1=1'];
     let params = [];
 
@@ -1268,6 +1404,67 @@ app.get('/api/transactions', async (req, res) => {
     if (payment_status) {
       whereConditions.push('t.payment_status = ?');
       params.push(payment_status);
+    }
+
+    if (penjamin === 'BPJS') {
+      whereConditions.push('t.bpjs_subsidy > 0');
+    } else if (penjamin === 'Umum') {
+      whereConditions.push('(t.bpjs_subsidy IS NULL OR t.bpjs_subsidy <= 0)');
+    }
+
+    if (date_start) {
+      whereConditions.push('DATE(t.transaction_date) >= ?');
+      params.push(date_start);
+    }
+
+    if (date_end) {
+      whereConditions.push('DATE(t.transaction_date) <= ?');
+      params.push(date_end);
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+    const dataSql = `SELECT t.*, 
+                            c.name AS customer_name, c.phone AS customer_phone, c.code AS customer_code,
+                            e.name AS employee_name,
+                            lo.id AS lab_order_id,
+                            COALESCE(t.order_status, lo.status, 'Proses Lab') AS lab_status,
+                            COALESCE(t.order_status, lo.status, 'Proses Lab') AS order_status,
+                            (SELECT GROUP_CONCAT(CONCAT(ti.product_name, ' (', ti.quantity, 'x)') SEPARATOR ', ')
+                             FROM transaction_items ti WHERE ti.transaction_id = t.id) AS items_summary
+                     FROM transactions t 
+                     JOIN customers c ON t.customer_id = c.id 
+                     JOIN employees e ON t.employee_id = e.id 
+                     LEFT JOIN lab_orders lo ON t.id = lo.transaction_id
+                     WHERE ${whereClause} 
+                     ORDER BY t.transaction_date DESC, t.id DESC`;
+
+    const [rows] = await pool.query(dataSql, params);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/transactions', async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search = '', payment_status = '', penjamin = '', date_start = '', date_end = '' } = req.query;
+    let whereConditions = ['1=1'];
+    let params = [];
+
+    if (search) {
+      whereConditions.push('(t.invoice_number LIKE ? OR c.name LIKE ? OR c.phone LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    if (payment_status) {
+      whereConditions.push('t.payment_status = ?');
+      params.push(payment_status);
+    }
+
+    if (penjamin === 'BPJS') {
+      whereConditions.push('t.bpjs_subsidy > 0');
+    } else if (penjamin === 'Umum') {
+      whereConditions.push('(t.bpjs_subsidy IS NULL OR t.bpjs_subsidy <= 0)');
     }
 
     if (date_start) {
@@ -1289,7 +1486,9 @@ app.get('/api/transactions', async (req, res) => {
     const dataSql = `SELECT t.*, 
                             c.name AS customer_name, c.phone AS customer_phone, c.code AS customer_code,
                             e.name AS employee_name,
-                            lo.id AS lab_order_id, lo.status AS lab_status,
+                            lo.id AS lab_order_id,
+                            COALESCE(t.order_status, lo.status, 'Proses Lab') AS lab_status,
+                            COALESCE(t.order_status, lo.status, 'Proses Lab') AS order_status,
                             COALESCE(
                               t.prescription_id,
                               (SELECT p.id FROM prescriptions p WHERE p.customer_id = t.customer_id ORDER BY p.exam_date DESC, p.id DESC LIMIT 1)
@@ -1302,7 +1501,43 @@ app.get('/api/transactions', async (req, res) => {
                      ORDER BY t.transaction_date DESC, t.id DESC`;
 
     const result = await paginateQuery(countSql, dataSql, params, params, page, limit);
-    res.json({ success: true, ...result });
+
+    // Summary counts for current search and date filters (for badge)
+    let summaryWhereConditions = ['1=1'];
+    let summaryParams = [];
+    if (search) {
+      summaryWhereConditions.push('(t.invoice_number LIKE ? OR c.name LIKE ? OR c.phone LIKE ?)');
+      summaryParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (payment_status) {
+      summaryWhereConditions.push('t.payment_status = ?');
+      summaryParams.push(payment_status);
+    }
+    if (date_start) {
+      summaryWhereConditions.push('DATE(t.transaction_date) >= ?');
+      summaryParams.push(date_start);
+    }
+    if (date_end) {
+      summaryWhereConditions.push('DATE(t.transaction_date) <= ?');
+      summaryParams.push(date_end);
+    }
+
+    const [summaryRows] = await pool.query(
+      `SELECT 
+        COUNT(*) AS total,
+        COUNT(CASE WHEN t.bpjs_subsidy > 0 THEN 1 END) AS bpjs,
+        COUNT(CASE WHEN t.bpjs_subsidy IS NULL OR t.bpjs_subsidy <= 0 THEN 1 END) AS umum
+       FROM transactions t
+       JOIN customers c ON t.customer_id = c.id
+       WHERE ${summaryWhereConditions.join(' AND ')}`,
+      summaryParams
+    );
+
+    res.json({ 
+      success: true, 
+      ...result,
+      summary: summaryRows[0] || { total: 0, bpjs: 0, umum: 0 }
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1562,6 +1797,14 @@ app.put('/api/transactions/:id', async (req, res) => {
     }
 
     const currentTrx = tRows[0];
+    if (currentTrx.order_status === 'Selesai') {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Pesanan berstatus Selesai telah terkunci otomatis dan tidak dapat diedit.'
+      });
+    }
+
     const {
       customer_id,
       employee_id,
@@ -1714,6 +1957,14 @@ app.delete('/api/transactions/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan' });
     }
 
+    if (tRows[0].order_status === 'Selesai') {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Pesanan berstatus Selesai telah terkunci otomatis dan tidak dapat dihapus.'
+      });
+    }
+
     // Ambil item transaksi untuk mengembalikan stok barang ke gudang
     const [items] = await connection.query(
       'SELECT product_id, quantity FROM transaction_items WHERE transaction_id = ?',
@@ -1748,11 +1999,11 @@ app.delete('/api/transactions/:id', async (req, res) => {
 });
 
 // ==========================================
-// 7. LAB / FASET ORDERS ENDPOINTS
+// 7. LAB / FASET ORDERS ENDPOINTS (STATUS PESANAN)
 // ==========================================
 app.get('/api/lab-orders', async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '', status = '', tab = 'all' } = req.query;
+    const { page = 1, limit = 50, search = '', status = '', tab = 'all' } = req.query;
     let whereConditions = ['1=1'];
     let params = [];
 
@@ -1765,11 +2016,11 @@ app.get('/api/lab-orders', async (req, res) => {
       whereConditions.push('lo.status = ?');
       params.push(status);
     } else if (tab === 'process') {
-      whereConditions.push("lo.status IN ('Menunggu Pengerjaan', 'Pemotongan Lensa', 'Perakitan', 'Quality Control')");
+      whereConditions.push("lo.status = 'Proses Lab'");
     } else if (tab === 'ready') {
       whereConditions.push("lo.status = 'Siap Diambil'");
     } else if (tab === 'completed') {
-      whereConditions.push("lo.status = 'Selesai Diambil'");
+      whereConditions.push("lo.status = 'Selesai'");
     }
 
     const whereClause = whereConditions.join(' AND ');
@@ -1780,7 +2031,8 @@ app.get('/api/lab-orders', async (req, res) => {
                       WHERE ${whereClause}`;
 
     const dataSql = `SELECT lo.*, 
-                            t.invoice_number, t.payment_status, t.remaining_amount, t.grand_total,
+                            t.invoice_number, t.payment_status, t.remaining_amount, t.grand_total, t.paid_amount,
+                            COALESCE(t.order_status, lo.status, 'Proses Lab') AS order_status,
                             c.name AS customer_name, c.phone AS customer_phone,
                             e.name AS technician_name,
                             p.od_sph, p.od_cyl, p.od_axis, p.os_sph, p.os_cyl, p.os_axis, p.total_pd
@@ -1797,22 +2049,43 @@ app.get('/api/lab-orders', async (req, res) => {
     // Also fetch items summary for each lab order
     for (const item of result.data) {
       const [items] = await pool.query(
-        'SELECT product_name, category, quantity FROM transaction_items WHERE transaction_id = ?',
+        'SELECT product_name, category, quantity, price FROM transaction_items WHERE transaction_id = ?',
         [item.transaction_id]
       );
       item.items = items;
     }
 
-    res.json({ success: true, ...result });
+    // Counts for the two Kanban columns: Proses Lab and Siap Diambil, plus Selesai
+    const [counts] = await pool.query(`
+      SELECT 
+        COUNT(CASE WHEN lo.status = 'Proses Lab' THEN 1 END) AS proses_lab,
+        COUNT(CASE WHEN lo.status = 'Siap Diambil' THEN 1 END) AS siap_diambil,
+        COUNT(CASE WHEN lo.status = 'Selesai' THEN 1 END) AS selesai
+      FROM lab_orders lo
+    `);
+
+    res.json({
+      success: true,
+      ...result,
+      summary: counts[0] || { proses_lab: 0, siap_diambil: 0, selesai: 0 }
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 app.put('/api/lab-orders/:id/status', async (req, res) => {
+  const connection = await pool.getConnection();
   try {
+    await connection.beginTransaction();
     const { id } = req.params;
-    const { status, technician_id, notes } = req.body;
+    let { status, technician_id, notes } = req.body;
+
+    if (status === 'Menunggu Pengerjaan' || status === 'Pemotongan Lensa' || status === 'Perakitan' || status === 'Quality Control') {
+      status = 'Proses Lab';
+    } else if (status === 'Selesai Diambil') {
+      status = 'Selesai';
+    }
 
     let updateFields = ['status = ?'];
     let params = [status];
@@ -1827,17 +2100,57 @@ app.put('/api/lab-orders/:id/status', async (req, res) => {
       params.push(notes);
     }
 
-    if (status === 'Selesai Diambil') {
+    if (status === 'Selesai') {
       updateFields.push('completed_date = NOW()');
     }
 
     params.push(id);
-    await pool.query(`UPDATE lab_orders SET ${updateFields.join(', ')} WHERE id = ?`, params);
+    await connection.query(`UPDATE lab_orders SET ${updateFields.join(', ')} WHERE id = ?`, params);
+
+    // Get transaction associated with this lab order
+    const [orderRows] = await connection.query('SELECT transaction_id FROM lab_orders WHERE id = ?', [id]);
+    if (orderRows.length > 0) {
+      const trxId = orderRows[0].transaction_id;
+      const [trxRows] = await connection.query('SELECT * FROM transactions WHERE id = ?', [trxId]);
+      if (trxRows.length > 0) {
+        const trx = trxRows[0];
+        if (status === 'Selesai') {
+          const remaining = parseFloat(trx.remaining_amount || 0);
+          if (remaining > 0 || trx.payment_status !== 'Lunas') {
+            await connection.query(
+              `INSERT INTO transaction_payments (
+                transaction_id, payment_date, payment_type, amount, payment_method, notes, employee_id
+              ) VALUES (?, NOW(), 'Pelunasan Pengambilan Pesanan', ?, 'Tunai', 'Pelunasan otomatis saat pesanan selesai diambil', ?)`,
+              [trxId, remaining > 0 ? remaining : trx.grand_total, trx.employee_id]
+            );
+          }
+          await connection.query(
+            `UPDATE transactions SET 
+              order_status = 'Selesai',
+              payment_status = 'Lunas',
+              paid_amount = grand_total,
+              remaining_amount = 0
+             WHERE id = ?`,
+            [trxId]
+          );
+        } else {
+          await connection.query(
+            `UPDATE transactions SET order_status = ? WHERE id = ?`,
+            [status, trxId]
+          );
+        }
+      }
+    }
+
+    await connection.commit();
 
     const [updated] = await pool.query('SELECT * FROM lab_orders WHERE id = ?', [id]);
-    res.json({ success: true, message: `Status lab diperbarui ke ${status}`, data: updated[0] });
+    res.json({ success: true, message: `Status pesanan berhasil diperbarui ke ${status}`, data: updated[0] });
   } catch (error) {
+    await connection.rollback();
     res.status(500).json({ success: false, message: error.message });
+  } finally {
+    connection.release();
   }
 });
 
@@ -2124,14 +2437,14 @@ app.get('/api/reports/dashboard', async (req, res) => {
       paramsExp
     );
 
-    // 4. Lab orders in progress
+    // 4. Lab orders in progress (Status Pesanan)
     const [labCount] = await pool.query(
       `SELECT 
         COUNT(*) AS total_active_lab,
         SUM(CASE WHEN status = 'Siap Diambil' THEN 1 ELSE 0 END) AS ready_for_pickup,
-        SUM(CASE WHEN status IN ('Menunggu Pengerjaan', 'Pemotongan Lensa', 'Perakitan', 'Quality Control') THEN 1 ELSE 0 END) AS in_process
+        SUM(CASE WHEN status = 'Proses Lab' THEN 1 ELSE 0 END) AS in_process
        FROM lab_orders 
-       WHERE status != 'Selesai Diambil'`
+       WHERE status != 'Selesai'`
     );
 
     // 5. Category sales breakdown
@@ -2146,7 +2459,7 @@ app.get('/api/reports/dashboard', async (req, res) => {
       paramsTrx
     );
 
-    // 6. Employee commission breakdown
+    // 6. Employee commission breakdown (Hanya terhitung saat order_status = 'Selesai')
     const [commissionReport] = await pool.query(
       `SELECT e.id, e.name, e.role, e.commission_type, e.commission_rate,
               COUNT(t.id) AS transaction_count,
@@ -2157,7 +2470,7 @@ app.get('/api/reports/dashboard', async (req, res) => {
                 ELSE 0
               END AS estimated_commission
        FROM employees e 
-       LEFT JOIN transactions t ON e.id = t.employee_id AND (${dateConditionTrx})
+       LEFT JOIN transactions t ON e.id = t.employee_id AND (${dateConditionTrx}) AND t.order_status = 'Selesai'
        GROUP BY e.id 
        ORDER BY total_handled_sales DESC`,
       paramsTrx

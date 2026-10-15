@@ -22,7 +22,7 @@ import ConfirmDialog from "@/components/common/ConfirmDialog";
 
 const initialForm = {
   name: "",
-  role: "Kasir",
+  role: "Admin",
   phone: "",
   commission_type: "percentage",
   commission_rate: 2.0,
@@ -202,9 +202,8 @@ export default function EmployeesPage() {
           >
             <option value="">Semua Role</option>
             <option value="Owner">Owner</option>
-            <option value="Refraksionis Optisien">Refraksionis Optisien (RO)</option>
-            <option value="Kasir">Kasir</option>
-            <option value="Teknisi Lab">Teknisi Lab</option>
+            <option value="Supervisor">Supervisor</option>
+            <option value="Admin">Admin</option>
           </select>
         </div>
 
@@ -233,11 +232,9 @@ export default function EmployeesPage() {
                 className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                   emp.role === "Owner"
                     ? "bg-purple-100 text-purple-800 border border-purple-200"
-                    : emp.role === "Refraksionis Optisien"
-                    ? "bg-blue-100 text-blue-800 border border-blue-200"
-                    : emp.role === "Teknisi Lab"
-                    ? "bg-amber-100 text-amber-800 border border-amber-200"
-                    : "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                    : emp.role === "Supervisor"
+                    ? "bg-indigo-100 text-indigo-800 border border-indigo-200"
+                    : "bg-blue-100 text-blue-800 border border-blue-200"
                 }`}
               >
                 {emp.role}
@@ -366,10 +363,9 @@ export default function EmployeesPage() {
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-semibold"
             >
-              <option value="Kasir">Kasir</option>
-              <option value="Refraksionis Optisien">Refraksionis Optisien (RO)</option>
-              <option value="Teknisi Lab">Teknisi Lab Fasetting</option>
-              <option value="Owner">Owner / Pemilik Toko</option>
+              <option value="Admin">Admin</option>
+              <option value="Supervisor">Supervisor</option>
+              <option value="Owner">Owner</option>
             </select>
           </div>
 

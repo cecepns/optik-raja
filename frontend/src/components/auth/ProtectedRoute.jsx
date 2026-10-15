@@ -1,18 +1,21 @@
 import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
-import { getDefaultRouteForRole } from "@/utils/roles";
+import { getDefaultRouteForRole, isRouteAuthorized } from "@/utils/roles";
 
-export default function ProtectedRoute({ children, allowedRoles }) {
-  const { currentUser, isAuthenticated } = useApp();
+export default function ProtectedRoute({ children, routePath }) {
+  const { currentUser, isAuthenticated, rolePermissions } = useApp();
   const location = useLocation();
 
   if (!isAuthenticated || !currentUser) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(currentUser.role)) {
-    const fallbackRoute = getDefaultRouteForRole(currentUser.role);
+  const checkPath = routePath || location.pathname;
+  const authorized = isRouteAuthorized(currentUser.role, checkPath, rolePermissions);
+
+  if (!authorized) {
+    const fallbackRoute = getDefaultRouteForRole(currentUser.role, rolePermissions);
     // Prevent infinite redirect loop if current route matches fallback route
     if (location.pathname === fallbackRoute) {
       return (
@@ -32,3 +35,4 @@ export default function ProtectedRoute({ children, allowedRoles }) {
 
   return children;
 }
+

@@ -17,29 +17,30 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { isRouteAuthorized } from "@/utils/roles";
 
 export default function Sidebar() {
   const location = useLocation();
-  const { currentUser, logout, isSidebarOpen, setIsSidebarOpen } = useApp();
+  const { currentUser, logout, rolePermissions, isSidebarOpen, setIsSidebarOpen } = useApp();
 
-  const userRole = currentUser?.role || "Kasir";
+  const userRole = currentUser?.role || "Admin";
 
   const navigation = [
-    { name: "Kasir POS", path: "/pos", icon: ShoppingCart, roles: ["Owner", "Kasir"] },
-    { name: "Rekam Medis", path: "/prescriptions", icon: Glasses, roles: ["Owner", "Kasir", "Refraksionis Optisien"] },
-    { name: "Status Lab & Faset", path: "/lab", icon: Wrench, roles: ["Owner", "Kasir", "Teknisi Lab"] },
-    { name: "Daftar Transaksi", path: "/transactions", icon: Receipt, roles: ["Owner", "Kasir"] },
-    { name: "Master Pelanggan", path: "/customers", icon: Users, roles: ["Owner", "Kasir", "Refraksionis Optisien"] },
-    { name: "Master Produk", path: "/products", icon: Package, roles: ["Owner", "Kasir"] },
-    { name: "Master Pegawai", path: "/employees", icon: UserCheck, roles: ["Owner"] },
-    { name: "Manajemen User", path: "/users", icon: UserCog, roles: ["Owner"] },
-    { name: "Pengeluaran Kas", path: "/expenses", icon: WalletCards, roles: ["Owner"] },
-    { name: "Laporan Keuangan", path: "/reports", icon: BarChart3, roles: ["Owner"] },
-    { name: "Pengaturan Sistem", path: "/settings", icon: Settings, roles: ["Owner"] },
+    { name: "Kasir POS", path: "/pos", icon: ShoppingCart },
+    { name: "Rekam Medis", path: "/prescriptions", icon: Glasses },
+    { name: "Status Pesanan", path: "/lab", icon: Wrench },
+    { name: "Daftar Transaksi", path: "/transactions", icon: Receipt },
+    { name: "Master Pelanggan", path: "/customers", icon: Users },
+    { name: "Master Produk", path: "/products", icon: Package },
+    { name: "Master Pegawai", path: "/employees", icon: UserCheck },
+    { name: "Manajemen User", path: "/users", icon: UserCog },
+    { name: "Pengeluaran Kas", path: "/expenses", icon: WalletCards },
+    { name: "Laporan Keuangan", path: "/reports", icon: BarChart3 },
+    { name: "Pengaturan Sistem", path: "/settings", icon: Settings },
   ];
 
   const filteredNav = navigation.filter((item) =>
-    item.roles.includes(userRole)
+    isRouteAuthorized(userRole, item.path, rolePermissions)
   );
 
   return (

@@ -23,8 +23,8 @@ import { useApp } from "@/context/AppContext";
 import { getDefaultRouteForRole } from "@/utils/roles";
 
 function RootRedirect() {
-  const { currentUser } = useApp();
-  const target = getDefaultRouteForRole(currentUser?.role);
+  const { currentUser, rolePermissions } = useApp();
+  const target = getDefaultRouteForRole(currentUser?.role, rolePermissions);
   return <Navigate to={target} replace />;
 }
 
@@ -79,7 +79,7 @@ export default function App() {
           <Route
             path="/pos"
             element={
-              <ProtectedRoute allowedRoles={["Owner", "Kasir"]}>
+              <ProtectedRoute routePath="/pos">
                 <AppLayout>
                   <POSPage />
                 </AppLayout>
@@ -89,7 +89,7 @@ export default function App() {
           <Route
             path="/prescriptions"
             element={
-              <ProtectedRoute allowedRoles={["Owner", "Kasir", "Refraksionis Optisien"]}>
+              <ProtectedRoute routePath="/prescriptions">
                 <AppLayout>
                   <PrescriptionsPage />
                 </AppLayout>
@@ -99,7 +99,7 @@ export default function App() {
           <Route
             path="/lab"
             element={
-              <ProtectedRoute allowedRoles={["Owner", "Kasir", "Teknisi Lab"]}>
+              <ProtectedRoute routePath="/lab">
                 <AppLayout>
                   <LabOrdersPage />
                 </AppLayout>
@@ -109,7 +109,7 @@ export default function App() {
           <Route
             path="/transactions"
             element={
-              <ProtectedRoute allowedRoles={["Owner", "Kasir"]}>
+              <ProtectedRoute routePath="/transactions">
                 <AppLayout>
                   <TransactionsPage />
                 </AppLayout>
@@ -119,7 +119,7 @@ export default function App() {
           <Route
             path="/customers"
             element={
-              <ProtectedRoute allowedRoles={["Owner", "Kasir", "Refraksionis Optisien"]}>
+              <ProtectedRoute routePath="/customers">
                 <AppLayout>
                   <CustomersPage />
                 </AppLayout>
@@ -129,7 +129,7 @@ export default function App() {
           <Route
             path="/products"
             element={
-              <ProtectedRoute allowedRoles={["Owner", "Kasir"]}>
+              <ProtectedRoute routePath="/products">
                 <AppLayout>
                   <ProductsPage />
                 </AppLayout>
@@ -139,7 +139,7 @@ export default function App() {
           <Route
             path="/employees"
             element={
-              <ProtectedRoute allowedRoles={["Owner"]}>
+              <ProtectedRoute routePath="/employees">
                 <AppLayout>
                   <EmployeesPage />
                 </AppLayout>
@@ -149,7 +149,7 @@ export default function App() {
           <Route
             path="/users"
             element={
-              <ProtectedRoute allowedRoles={["Owner"]}>
+              <ProtectedRoute routePath="/users">
                 <AppLayout>
                   <UsersPage />
                 </AppLayout>
@@ -159,7 +159,7 @@ export default function App() {
           <Route
             path="/expenses"
             element={
-              <ProtectedRoute allowedRoles={["Owner"]}>
+              <ProtectedRoute routePath="/expenses">
                 <AppLayout>
                   <ExpensesPage />
                 </AppLayout>
@@ -169,7 +169,7 @@ export default function App() {
           <Route
             path="/reports"
             element={
-              <ProtectedRoute allowedRoles={["Owner"]}>
+              <ProtectedRoute routePath="/reports">
                 <AppLayout>
                   <ReportsPage />
                 </AppLayout>
@@ -179,7 +179,7 @@ export default function App() {
           <Route
             path="/settings"
             element={
-              <ProtectedRoute allowedRoles={["Owner"]}>
+              <ProtectedRoute routePath="/settings">
                 <AppLayout>
                   <SettingsPage />
                 </AppLayout>

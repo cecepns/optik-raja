@@ -49,6 +49,7 @@ export const API_ENDPOINTS = {
   SETTINGS: {
     GET: "/settings",
     UPDATE: "/settings",
+    UPDATE_PERMISSIONS: "/settings/permissions",
   },
   EMPLOYEES: {
     LIST: "/employees",
@@ -88,6 +89,7 @@ export const API_ENDPOINTS = {
     UPDATE: (id) => `/transactions/${id}`,
     DELETE: (id) => `/transactions/${id}`,
     PAY: (id) => `/transactions/${id}/pay`,
+    EXPORT: "/transactions/export",
   },
   LAB_ORDERS: {
     LIST: "/lab-orders",

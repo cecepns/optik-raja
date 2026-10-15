@@ -30,10 +30,11 @@ CREATE TABLE settings (
   address TEXT,
   receipt_footer TEXT,
   printer_paper_size VARCHAR(10) DEFAULT '58mm',
+  role_permissions JSON DEFAULT NULL,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-INSERT INTO settings (id, store_name, optician_permit_no, phone, address, receipt_footer, printer_paper_size)
+INSERT INTO settings (id, store_name, optician_permit_no, phone, address, receipt_footer, printer_paper_size, role_permissions)
 VALUES (
   1,
   'Optik Raja Official',
@@ -41,7 +42,8 @@ VALUES (
   '0812-9876-5432',
   'Jl. Merdeka Raya No. 88, Pusat Bisnis Nusantara',
   'Terima kasih atas kepercayaan Anda. Garansi stel kacamata & servis gratis selamanya. Garansi adaptasi lensa 30 hari.',
-  '58mm'
+  '58mm',
+  '{"Supervisor": ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products", "/expenses", "/reports"], "Admin": ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products"]}'
 );
 
 -- 2. Table Employees
@@ -49,7 +51,7 @@ DROP TABLE IF EXISTS employees;
 CREATE TABLE employees (
   id INT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(100) NOT NULL,
-  role ENUM('Owner', 'Kasir', 'Refraksionis Optisien', 'Teknisi Lab') NOT NULL DEFAULT 'Kasir',
+  role VARCHAR(50) NOT NULL DEFAULT 'Admin',
   phone VARCHAR(30),
   commission_type ENUM('percentage', 'fixed') DEFAULT 'percentage',
   commission_rate DECIMAL(10,2) DEFAULT 2.50,
@@ -60,10 +62,10 @@ CREATE TABLE employees (
 
 INSERT INTO employees (id, name, role, phone, commission_type, commission_rate, is_active) VALUES
 (1, 'Raja Pratama (Owner)', 'Owner', '0811-2233-4455', 'percentage', 0.00, 1),
-(2, 'Budi Santoso, A.Md.RO', 'Refraksionis Optisien', '0812-3344-5566', 'percentage', 5.00, 1),
-(3, 'Siti Rahmawati', 'Kasir', '0813-4455-6677', 'percentage', 2.00, 1),
-(4, 'Ahmad Fauzi', 'Teknisi Lab', '0815-5566-7788', 'fixed', 15000.00, 1),
-(5, 'Dewi Lestari', 'Kasir', '0817-6677-8899', 'percentage', 2.00, 1);
+(2, 'Budi Santoso, A.Md.RO (Supervisor)', 'Supervisor', '0812-3344-5566', 'percentage', 5.00, 1),
+(3, 'Siti Rahmawati (Admin)', 'Admin', '0813-4455-6677', 'percentage', 2.00, 1),
+(4, 'Ahmad Fauzi (Admin)', 'Admin', '0815-5566-7788', 'fixed', 15000.00, 1),
+(5, 'Dewi Lestari (Admin)', 'Admin', '0817-6677-8899', 'percentage', 2.00, 1);
 
 -- 2.1 Table Users (Autentikasi & Manajemen Akun Pengguna)
 DROP TABLE IF EXISTS users;
@@ -73,7 +75,7 @@ CREATE TABLE users (
   username VARCHAR(50) UNIQUE NOT NULL,
   email VARCHAR(100) UNIQUE,
   password VARCHAR(255) NOT NULL,
-  role ENUM('Owner', 'Kasir', 'Refraksionis Optisien', 'Teknisi Lab') NOT NULL DEFAULT 'Kasir',
+  role VARCHAR(50) NOT NULL DEFAULT 'Admin',
   employee_id INT DEFAULT NULL,
   phone VARCHAR(30),
   avatar VARCHAR(255) DEFAULT NULL,
@@ -85,9 +87,8 @@ CREATE TABLE users (
 
 INSERT INTO users (id, name, username, email, password, role, employee_id, phone, is_active) VALUES
 (1, 'Raja Pratama (Owner)', 'owner', 'owner@optikraja.com', '$2b$10$2tj/00TLiJrwO3YLAumBduYMvAEyXSnvc0Lh0e.0YHjwdOk7B3Yty', 'Owner', 1, '0811-2233-4455', 1),
-(2, 'Budi Santoso, A.Md.RO', 'optisien', 'budi.ro@optikraja.com', '$2b$10$J1cuNhkQhgIAyUfavxBH3ugO3ErHqNAbxnWN0lzc6E.FAnKxONxT.', 'Refraksionis Optisien', 2, '0812-3344-5566', 1),
-(3, 'Siti Rahmawati', 'kasir', 'siti.kasir@optikraja.com', '$2b$10$4.xpV/csaqYFF9DupTEhoenMA0.bX8EOUU8CTU.45zYNJdl0g/imm', 'Kasir', 3, '0813-4455-6677', 1),
-(4, 'Ahmad Fauzi', 'teknisi', 'fauzi.lab@optikraja.com', '$2b$10$JtG.q6Ot6rfLSZFcxpyaWeyXb5PElP.EVkEyR5IA8uUfAUu48KBWm', 'Teknisi Lab', 4, '0815-5566-7788', 1);
+(2, 'Budi Santoso, A.Md.RO', 'supervisor', 'budi.supervisor@optikraja.com', '$2b$10$J1cuNhkQhgIAyUfavxBH3ugO3ErHqNAbxnWN0lzc6E.FAnKxONxT.', 'Supervisor', 2, '0812-3344-5566', 1),
+(3, 'Siti Rahmawati', 'admin', 'siti.admin@optikraja.com', '$2b$10$4.xpV/csaqYFF9DupTEhoenMA0.bX8EOUU8CTU.45zYNJdl0g/imm', 'Admin', 3, '0813-4455-6677', 1);
 
 -- 3. Table Customers
 DROP TABLE IF EXISTS customers;
@@ -241,6 +242,7 @@ CREATE TABLE transactions (
 
   dp_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   remaining_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  order_status ENUM('Proses Lab', 'Siap Diambil', 'Selesai') NOT NULL DEFAULT 'Proses Lab',
 
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -284,7 +286,7 @@ CREATE TABLE transaction_payments (
   FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL
 );
 
--- 9. Table Lab Orders (Pelacakan Status Fasetting Lab)
+-- 9. Table Lab Orders (Pelacakan Status Pesanan Lab)
 DROP TABLE IF EXISTS lab_orders;
 CREATE TABLE lab_orders (
   id INT PRIMARY KEY AUTO_INCREMENT,
@@ -295,7 +297,7 @@ CREATE TABLE lab_orders (
   order_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   estimated_date DATE DEFAULT NULL,
   completed_date DATETIME DEFAULT NULL,
-  status ENUM('Menunggu Pengerjaan', 'Pemotongan Lensa', 'Perakitan', 'Quality Control', 'Siap Diambil', 'Selesai Diambil') NOT NULL DEFAULT 'Menunggu Pengerjaan',
+  status ENUM('Proses Lab', 'Siap Diambil', 'Selesai') NOT NULL DEFAULT 'Proses Lab',
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

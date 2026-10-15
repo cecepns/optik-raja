@@ -64,6 +64,19 @@ export function AppProvider({ children }) {
     toast.success("Anda berhasil keluar dari sistem");
   };
 
+  const rolePermissions = settings?.role_permissions || currentUser?.role_permissions || {
+    Supervisor: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products", "/expenses", "/reports"],
+    Admin: ["/pos", "/prescriptions", "/lab", "/transactions", "/customers", "/products"],
+  };
+
+  const switchRole = (newRole) => {
+    if (!currentUser) return;
+    const updated = { ...currentUser, role: newRole };
+    setCurrentUser(updated);
+    localStorage.setItem("optik_user", JSON.stringify(updated));
+    toast.success(`Beralih ke peran: ${newRole}`);
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -76,8 +89,10 @@ export function AppProvider({ children }) {
         settings,
         setSettings,
         fetchSettings,
+        rolePermissions,
         isSidebarOpen,
         setIsSidebarOpen,
+        switchRole,
       }}
     >
       {children}

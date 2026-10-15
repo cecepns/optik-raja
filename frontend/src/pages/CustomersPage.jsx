@@ -12,6 +12,10 @@ import {
   FileSpreadsheet,
   FileUp,
   Loader2,
+  Eye,
+  MessageCircle,
+  MapPin,
+  User,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
@@ -61,6 +65,7 @@ export default function CustomersPage() {
   // Detail / History Modal State
   const [historyCustomer, setHistoryCustomer] = useState(null);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [selectedDetailCustomer, setSelectedDetailCustomer] = useState(null);
 
   // Bulk Import & Export State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -191,13 +196,10 @@ export default function CustomersPage() {
   };
 
   const headers = [
-    { label: "Kode & Pasien", align: "left" },
-    { label: "Nomor WhatsApp / HP", align: "left" },
-    { label: "Gender & Usia", align: "center" },
-    { label: "Alamat Lengkap", align: "left" },
-    { label: "Catatan Preferensi", align: "left" },
-    { label: "Riwayat", align: "center" },
-    { label: "Aksi", align: "center" },
+    { label: "Pasien & Kode", align: "left" },
+    { label: "Kontak & Usia", align: "left" },
+    { label: "Riwayat Medis", align: "center" },
+    { label: "Aksi", align: "center", className: "w-32" },
   ];
 
   return (
@@ -301,44 +303,43 @@ export default function CustomersPage() {
       >
         {customers.map((c) => (
           <tr key={c.id} className="hover:bg-gray-50/70 transition-colors">
-            {/* Code & Name */}
-            <td className="px-4 py-3 whitespace-nowrap">
-              <div className="font-bold text-xs text-gray-900">{c.name}</div>
-              <span className="text-[10px] font-mono font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
-                {c.code}
-              </span>
-            </td>
-
-            {/* Phone */}
-            <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-800">
-              <div className="flex items-center gap-1.5">
-                <Phone className="w-3.5 h-3.5 text-gray-400" />
-                <span className="font-medium">{c.phone}</span>
+            {/* 1. Pasien & Kode */}
+            <td className="px-4 py-3 align-middle">
+              <div className="font-bold text-xs sm:text-sm text-gray-900 leading-tight">
+                {c.name}
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                  {c.code}
+                </span>
+                {c.address && (
+                  <span
+                    className="text-[11px] text-gray-500 truncate max-w-[220px]"
+                    title={c.address}
+                  >
+                    {c.address}
+                  </span>
+                )}
               </div>
             </td>
 
-            {/* Gender & Age */}
-            <td className="px-4 py-3 text-center whitespace-nowrap text-xs text-gray-700">
-              <span className="font-medium">{c.gender}</span>
-              {c.age && <span className="text-gray-400 text-[11px] block">{c.age} Tahun</span>}
+            {/* 2. Kontak & Usia */}
+            <td className="px-4 py-3 align-middle text-xs text-gray-800">
+              <div className="flex items-center gap-1.5 font-medium">
+                <Phone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>{c.phone}</span>
+              </div>
+              <div className="text-[11px] text-gray-400 mt-0.5">
+                {c.gender} {c.age ? `· ${c.age} Tahun` : ""}
+              </div>
             </td>
 
-            {/* Address */}
-            <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 max-w-xs truncate">
-              {c.address || "-"}
-            </td>
-
-            {/* Notes */}
-            <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 max-w-xs truncate">
-              {c.notes || "-"}
-            </td>
-
-            {/* History Button */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
+            {/* 3. Riwayat Medis */}
+            <td className="px-4 py-3 text-center align-middle whitespace-nowrap">
               <button
                 type="button"
                 onClick={() => handleViewHistory(c)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors cursor-pointer"
                 title="Lihat Rekam Medis & Riwayat Belanja"
               >
                 <History className="w-3.5 h-3.5" />
@@ -346,13 +347,21 @@ export default function CustomersPage() {
               </button>
             </td>
 
-            {/* Actions */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
+            {/* 4. Aksi (Eye detail, Edit, Delete) */}
+            <td className="px-4 py-3 text-center align-middle whitespace-nowrap">
               <div className="flex items-center justify-center gap-1">
                 <button
                   type="button"
+                  onClick={() => setSelectedDetailCustomer(c)}
+                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                  title="Lihat Detail Pasien Lengkap"
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleOpenEdit(c)}
-                  className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                  className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
                   title="Edit Data"
                 >
                   <Edit2 className="w-4 h-4" />
@@ -360,7 +369,7 @@ export default function CustomersPage() {
                 <button
                   type="button"
                   onClick={() => setDeleteId(c.id)}
-                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                   title="Hapus Data"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -568,6 +577,99 @@ export default function CustomersPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Detail Pelanggan Modal (Eye icon) */}
+      {selectedDetailCustomer && (
+        <Modal
+          isOpen={Boolean(selectedDetailCustomer)}
+          onClose={() => setSelectedDetailCustomer(null)}
+          title={`Detail Pasien: ${selectedDetailCustomer.name}`}
+          size="md"
+        >
+          <div className="space-y-4 text-xs">
+            <div className="bg-blue-50/80 p-4 rounded-xl border border-blue-100 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-mono font-bold text-blue-700 bg-white border border-blue-200 px-2 py-0.5 rounded">
+                  {selectedDetailCustomer.code}
+                </span>
+                <h3 className="font-extrabold text-sm sm:text-base text-gray-900 mt-1">
+                  {selectedDetailCustomer.name}
+                </h3>
+              </div>
+              <div className="text-right">
+                <span className="text-gray-500 font-medium block">
+                  {selectedDetailCustomer.gender}
+                </span>
+                {selectedDetailCustomer.age && (
+                  <span className="font-bold text-gray-800">
+                    {selectedDetailCustomer.age} Tahun
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2.5 bg-gray-50 p-4 rounded-xl border border-gray-200">
+              <div className="flex items-start gap-2">
+                <Phone className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="text-gray-400 block text-[11px]">Nomor WhatsApp / HP:</span>
+                  <span className="font-bold text-gray-900 text-sm">
+                    {selectedDetailCustomer.phone}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 pt-2 border-t border-gray-200/80">
+                <MapPin className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <div>
+                  <span className="text-gray-400 block text-[11px]">Alamat Lengkap:</span>
+                  <span className="text-gray-800 font-medium leading-relaxed">
+                    {selectedDetailCustomer.address || "-"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 pt-2 border-t border-gray-200/80">
+                <FileText className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <span className="text-gray-400 block text-[11px]">Catatan Preferensi / Pasien:</span>
+                  <span className="text-gray-800 font-medium leading-relaxed">
+                    {selectedDetailCustomer.notes || "-"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const cust = selectedDetailCustomer;
+                  setSelectedDetailCustomer(null);
+                  handleViewHistory(cust);
+                }}
+                className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg border border-indigo-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>Buka Riwayat Medis</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const cleanPhone = (selectedDetailCustomer.phone || "").replace(/[^0-9]/g, "");
+                  const waNumber = cleanPhone.startsWith("0") ? "62" + cleanPhone.slice(1) : cleanPhone;
+                  window.open(`https://wa.me/${waNumber}`, "_blank");
+                }}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>Chat WhatsApp</span>
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Delete Confirm */}
       <ConfirmDialog

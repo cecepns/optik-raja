@@ -13,6 +13,9 @@ import {
   X,
   Loader2,
   FolderKanban,
+  Eye,
+  FileText,
+  Building2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { request } from "@/utils/request";
@@ -102,6 +105,9 @@ export default function ExpensesPage() {
   // Delete Confirm State (Expense)
   const [deleteId, setDeleteId] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Detail Modal State (Expense)
+  const [selectedDetailExpense, setSelectedDetailExpense] = useState(null);
 
   // Fetch Categories on Mount
   useEffect(() => {
@@ -382,12 +388,10 @@ export default function ExpensesPage() {
   });
 
   const headers = [
-    { label: "Tanggal Pengeluaran", align: "left" },
-    { label: "Kategori Kas", align: "center" },
-    { label: "Keterangan & Rincian", align: "left" },
+    { label: "Keterangan & Kategori", align: "left" },
     { label: "Penerima / Vendor", align: "left" },
     { label: "Jumlah Biaya", align: "right" },
-    { label: "Aksi", align: "center" },
+    { label: "Aksi", align: "center", className: "w-28" },
   ];
 
   return (
@@ -519,39 +523,46 @@ export default function ExpensesPage() {
       >
         {expenses.map((ex) => (
           <tr key={ex.id} className="hover:bg-gray-50/70 transition-colors">
-            {/* Date */}
-            <td className="px-4 py-3 whitespace-nowrap text-xs font-semibold text-gray-800">
-              <div className="flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                {formatDate(ex.expense_date)}
+            {/* 1. Description & Category */}
+            <td className="px-4 py-3 align-middle">
+              <div className="font-bold text-xs sm:text-sm text-gray-900 leading-tight">
+                {ex.description}
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                  {ex.category}
+                </span>
+                <span className="text-[11px] text-gray-400 flex items-center gap-1 font-medium">
+                  <Calendar className="w-3 h-3 text-gray-400" />
+                  <span>{formatDate(ex.expense_date)}</span>
+                </span>
               </div>
             </td>
 
-            {/* Category */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
-              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                {ex.category}
-              </span>
+            {/* 2. Recipient */}
+            <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-700 align-middle">
+              <div className="flex items-center gap-1.5 font-medium">
+                <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                <span>{ex.recipient || "-"}</span>
+              </div>
             </td>
 
-            {/* Description */}
-            <td className="px-4 py-3 text-xs text-gray-900 font-medium whitespace-nowrap max-w-sm truncate">
-              {ex.description}
-            </td>
-
-            {/* Recipient */}
-            <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
-              {ex.recipient || "-"}
-            </td>
-
-            {/* Amount */}
-            <td className="px-4 py-3 text-right whitespace-nowrap text-xs font-bold text-red-600">
+            {/* 3. Amount */}
+            <td className="px-4 py-3 text-right whitespace-nowrap text-xs sm:text-sm font-extrabold text-red-600 align-middle">
               {formatRupiah(ex.amount)}
             </td>
 
-            {/* Actions */}
-            <td className="px-4 py-3 text-center whitespace-nowrap">
+            {/* 4. Actions */}
+            <td className="px-4 py-3 text-center align-middle whitespace-nowrap">
               <div className="flex items-center justify-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetailExpense(ex)}
+                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                  title="Lihat Detail Pengeluaran"
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
                 <button
                   type="button"
                   onClick={() => handleOpenEdit(ex)}
@@ -894,6 +905,69 @@ export default function ExpensesPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Detail Expense Modal (Eye icon) */}
+      {selectedDetailExpense && (
+        <Modal
+          isOpen={Boolean(selectedDetailExpense)}
+          onClose={() => setSelectedDetailExpense(null)}
+          title="Detail Pengeluaran Kas"
+          size="md"
+        >
+          <div className="space-y-4 text-xs">
+            <div className="bg-red-50/70 p-4 rounded-xl border border-red-100 flex items-center justify-between">
+              <div>
+                <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-white text-blue-700 border border-blue-200">
+                  {selectedDetailExpense.category}
+                </span>
+                <span className="text-gray-400 text-[11px] block mt-1">
+                  {formatDate(selectedDetailExpense.expense_date)}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-red-600 block font-semibold">Total Biaya</span>
+                <span className="font-black text-lg text-red-700">
+                  {formatRupiah(selectedDetailExpense.amount)}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 bg-gray-50 p-4 rounded-xl border border-gray-200">
+              <div>
+                <span className="text-gray-400 block text-[11px]">Keterangan & Rincian Pengeluaran:</span>
+                <p className="text-gray-900 font-semibold text-xs sm:text-sm mt-0.5 leading-relaxed">
+                  {selectedDetailExpense.description}
+                </p>
+              </div>
+
+              <div className="pt-2 border-t border-gray-200 flex items-center justify-between">
+                <div>
+                  <span className="text-gray-400 block text-[11px]">Penerima / Vendor:</span>
+                  <span className="font-bold text-gray-800">
+                    {selectedDetailExpense.recipient || "-"}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-gray-400 block text-[11px]">ID Catatan:</span>
+                  <span className="font-mono text-gray-600">
+                    EXP-{String(selectedDetailExpense.id).padStart(4, "0")}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setSelectedDetailExpense(null)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Delete Expense Confirm Dialog */}
       <ConfirmDialog
