@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import toast from "react-hot-toast";
 
 import { getDefaultRouteForRole } from "@/utils/roles";
+import PwaInstallCard from "@/components/common/PwaInstallCard";
 
 export default function LoginPage() {
   const { login, isAuthenticated, currentUser, settings } = useApp();
@@ -57,14 +58,16 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200/80 p-6 sm:p-8">
-        {/* Logo & Header di Atas */}
+        {/* Logo & Header di Atas: Logo Kecil, Background Putih, Tidak Ter-stretch */}
         <div className="text-center mb-6">
           <div className="flex justify-center mb-3">
-            <img
-              src="/logo.png"
-              alt="Logo Optik Raja"
-              className="h-14 sm:h-16 w-auto max-w-[260px] object-contain"
-            />
+            <div className="p-2 sm:p-2.5 bg-white rounded-2xl border border-slate-200/80 shadow-2xs inline-flex items-center justify-center">
+              <img
+                src="/logo.png"
+                alt="Logo Optik Raja"
+                className="h-9 sm:h-10 w-auto max-w-[200px] object-contain"
+              />
+            </div>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tight">
             Masuk ke Sistem
@@ -156,6 +159,9 @@ export default function LoginPage() {
             )}
           </button>
         </form>
+
+        {/* PWA Download / Install Section */}
+        <PwaInstallCard />
 
         {/* Footer */}
         <div className="mt-6 text-center text-xs text-slate-400">
