@@ -15,6 +15,17 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    const savedUser = localStorage.getItem("optik_user");
+    if (savedUser) {
+      try {
+        const u = JSON.parse(savedUser);
+        if (u.role) {
+          config.headers["X-User-Role"] = u.role;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
     return config;
   },
   (error) => Promise.reject(error)

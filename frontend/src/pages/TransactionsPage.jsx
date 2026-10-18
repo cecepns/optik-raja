@@ -55,7 +55,8 @@ const formatTransactionDateTime = (dateString) => {
 };
 
 export default function TransactionsPage() {
-  const { settings } = useApp();
+  const { settings, currentUser } = useApp();
+  const isOwner = currentUser?.role === "Owner";
   const [transactions, setTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -950,27 +951,28 @@ export default function TransactionsPage() {
                     <MessageCircle className="w-3.5 h-3.5" />
                   </button>
 
-                  {/* Edit & Delete Buttons: Only visible if NOT Selesai */}
+                  {/* Edit Button: Only visible if NOT Selesai */}
                   {orderStatus !== "Selesai" && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEdit(trx)}
-                        className="p-1.5 text-amber-600 bg-white border border-gray-300 hover:bg-amber-50 active:scale-95 rounded-lg shadow-2xs transition-all cursor-pointer"
-                        title="Edit Data Transaksi"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(trx)}
+                      className="p-1.5 text-amber-600 bg-white border border-gray-300 hover:bg-amber-50 active:scale-95 rounded-lg shadow-2xs transition-all cursor-pointer"
+                      title="Edit Data Transaksi"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
 
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTrx(trx)}
-                        className="p-1.5 text-gray-400 hover:text-red-600 bg-white border border-gray-200 hover:border-red-300 active:scale-95 rounded-lg shadow-2xs transition-all cursor-pointer"
-                        title="Hapus Transaksi"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </>
+                  {/* Delete Button: Khusus Otorisasi Owner */}
+                  {isOwner && (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTrx(trx)}
+                      className="p-1.5 text-red-500 hover:text-red-700 bg-white hover:bg-red-50 border border-gray-200 hover:border-red-300 active:scale-95 rounded-lg shadow-2xs transition-all cursor-pointer"
+                      title="Hapus Transaksi (Khusus Owner)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   )}
                 </div>
               </div>
@@ -1175,15 +1177,19 @@ export default function TransactionsPage() {
       />
 
       {/* ==========================================
-          DELETE CONFIRMATION DIALOG
+          DELETE CONFIRMATION DIALOG (KHUSUS OWNER)
          ========================================== */}
       <ConfirmDialog
         isOpen={!!deleteTrx}
         onClose={() => setDeleteTrx(null)}
         onConfirm={handleConfirmDelete}
         isLoading={isDeleting}
-        title="Hapus Transaksi Penjualan"
-        message={`Apakah Anda yakin ingin menghapus transaksi nota ${deleteTrx?.invoice_number}? Stok seluruh produk dalam transaksi ini akan dikembalikan ke gudang secara otomatis.`}
+        title="Hapus Transaksi (Otorisasi Owner)"
+        message={
+          deleteTrx?.order_status === "Selesai"
+            ? `Perhatian (Otorisasi Owner): Nota ${deleteTrx?.invoice_number} berstatus "Selesai". Menghapus transaksi ini akan membatalkan riwayat nota, menghapus order lab, dan mengembalikan seluruh kuantiti produk ke stok gudang secara otomatis. Lanjutkan penghapusan nota ini?`
+            : `Apakah Anda yakin ingin menghapus transaksi nota ${deleteTrx?.invoice_number}? Stok seluruh produk dalam transaksi ini akan dikembalikan ke gudang secara otomatis.`
+        }
         confirmText="Ya, Hapus Transaksi"
       />
 
@@ -1197,24 +1203,43 @@ export default function TransactionsPage() {
         subtitle={`Nota: ${editFormData?.invoice_number} • Total: ${formatRupiah(editFormData?.grand_total || 0)}`}
         maxWidth="max-w-4xl"
         footer={
-          <>
-            <button
-              type="button"
-              onClick={() => setIsEditModalOpen(false)}
-              className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
-            >
-              Batal
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveEdit}
-              disabled={isSubmittingEdit}
-              className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50 cursor-pointer"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              {isSubmittingEdit ? "Menyimpan Perubahan..." : "Simpan Perubahan"}
-            </button>
-          </>
+          <div className="flex items-center justify-between w-full">
+            <div>
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentTrx = transactions.find((t) => t.id === editFormData?.id) || editFormData;
+                    setIsEditModalOpen(false);
+                    setDeleteTrx(currentTrx);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg cursor-pointer transition-colors"
+                  title="Hapus Transaksi (Khusus Owner)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Nota (Owner)</span>
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={isSubmittingEdit}
+                className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                {isSubmittingEdit ? "Menyimpan Perubahan..." : "Simpan Perubahan"}
+              </button>
+            </div>
+          </div>
         }
       >
         {editFormData && (

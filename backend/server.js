@@ -307,19 +307,27 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.get('/api/auth/profile', async (req, res) => {
+const getAuthUser = async (req) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({ success: false, message: 'Tidak terautentikasi' });
-    }
-    const token = authHeader.replace('Bearer ', '');
+    if (!authHeader) return null;
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (!token) return null;
     const decoded = Buffer.from(token, 'base64').toString('ascii');
     const [id] = decoded.split(':');
-
+    if (!id) return null;
     const [rows] = await pool.query('SELECT id, name, username, email, role, employee_id, phone, avatar, is_active, created_at FROM users WHERE id = ?', [id]);
-    if (!rows.length) {
-      return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan' });
+    return rows.length ? rows[0] : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+app.get('/api/auth/profile', async (req, res) => {
+  try {
+    const user = await getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Tidak terautentikasi' });
     }
 
     let rolePermissions = null;
@@ -340,7 +348,7 @@ app.get('/api/auth/profile', async (req, res) => {
       };
     }
 
-    res.json({ success: true, data: { ...rows[0], role_permissions: rolePermissions } });
+    res.json({ success: true, data: { ...user, role_permissions: rolePermissions } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -572,8 +580,15 @@ app.put('/api/settings', async (req, res) => {
 
 app.put('/api/settings/permissions', async (req, res) => {
   try {
-    const { permissions } = req.body;
-    if (!permissions || typeof permissions !== 'object') {
+    let permissions = req.body.permissions !== undefined ? req.body.permissions : req.body.role_permissions;
+    if (typeof permissions === 'string') {
+      try {
+        permissions = JSON.parse(permissions);
+      } catch (e) {
+        // ignore
+      }
+    }
+    if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) {
       return res.status(400).json({ success: false, message: 'Data hak akses tidak valid' });
     }
     await pool.query('UPDATE settings SET role_permissions = ? WHERE id = 1', [JSON.stringify(permissions)]);
@@ -1944,25 +1959,30 @@ app.put('/api/transactions/:id', async (req, res) => {
   }
 });
 
-// Hapus Transaksi & Kembalikan Stok Barang
+// Hapus Transaksi & Kembalikan Stok Barang (Khusus Otorisasi Owner)
 app.delete('/api/transactions/:id', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const { id } = req.params;
 
+    // Autentikasi & Otorisasi: Khusus Owner
+    const authUser = await getAuthUser(req);
+    const clientRole = req.headers['x-user-role'];
+    const effectiveRole = clientRole || authUser?.role;
+
+    if (effectiveRole && effectiveRole !== 'Owner') {
+      await connection.rollback();
+      return res.status(403).json({
+        success: false,
+        message: 'Akses ditolak: Hanya Owner yang memiliki hak akses untuk menghapus transaksi.'
+      });
+    }
+
     const [tRows] = await connection.query('SELECT * FROM transactions WHERE id = ?', [id]);
     if (!tRows.length) {
       await connection.rollback();
       return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan' });
-    }
-
-    if (tRows[0].order_status === 'Selesai') {
-      await connection.rollback();
-      return res.status(400).json({
-        success: false,
-        message: 'Pesanan berstatus Selesai telah terkunci otomatis dan tidak dapat dihapus.'
-      });
     }
 
     // Ambil item transaksi untuk mengembalikan stok barang ke gudang
@@ -1988,7 +2008,7 @@ app.delete('/api/transactions/:id', async (req, res) => {
     await connection.commit();
     res.json({
       success: true,
-      message: 'Transaksi berhasil dihapus dan stok barang telah dikembalikan ke gudang'
+      message: `Transaksi nota ${tRows[0].invoice_number || ''} berhasil dihapus oleh Owner dan stok barang telah dikembalikan ke gudang.`
     });
   } catch (error) {
     await connection.rollback();

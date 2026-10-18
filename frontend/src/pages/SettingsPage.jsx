@@ -308,7 +308,7 @@ export default function SettingsPage() {
 }
 
 function RolePermissionsManager() {
-  const { rolePermissions, fetchSettings, currentUser } = useApp();
+  const { rolePermissions, fetchSettings, currentUser, setCurrentUser } = useApp();
   const [perms, setPerms] = useState(() => ({
     Supervisor: rolePermissions?.Supervisor || DEFAULT_ROLE_PERMISSIONS.Supervisor,
     Admin: rolePermissions?.Admin || DEFAULT_ROLE_PERMISSIONS.Admin,
@@ -353,11 +353,17 @@ function RolePermissionsManager() {
     setIsSaving(true);
     try {
       const res = await request.put(API_ENDPOINTS.SETTINGS.UPDATE_PERMISSIONS, {
+        permissions: perms,
         role_permissions: perms,
       });
       if (res?.success) {
         toast.success("Hak akses Supervisor & Admin berhasil diperbarui!");
         await fetchSettings();
+        if (currentUser && setCurrentUser) {
+          const updatedUser = { ...currentUser, role_permissions: perms };
+          setCurrentUser(updatedUser);
+          localStorage.setItem("optik_user", JSON.stringify(updatedUser));
+        }
       }
     } catch (err) {
       toast.error(err.message || "Gagal menyimpan hak akses");
