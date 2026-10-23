@@ -81,6 +81,7 @@ export const API_ENDPOINTS = {
     UPDATE: (id) => `/prescriptions/${id}`,
     DELETE: (id) => `/prescriptions/${id}`,
     EXPORT: "/prescriptions/export",
+    BULK_IMPORT: "/prescriptions/bulk-import",
   },
   TRANSACTIONS: {
     LIST: "/transactions",

@@ -640,6 +640,367 @@ export function exportPrescriptionsToExcel(prescriptions, periodLabel, customFil
   return fileName;
 }
 
+/**
+ * Helper to normalize diopter value (Sph, Cyl, Add)
+ */
+function cleanDiopter(val) {
+  if (val === undefined || val === null || val === "" || String(val).trim() === "-") {
+    return "0.00";
+  }
+  let str = String(val).trim().replace(",", ".");
+  if (str.toLowerCase() === "plano" || str.toLowerCase() === "normal" || str === "0") {
+    return "0.00";
+  }
+  const num = parseFloat(str);
+  if (isNaN(num)) return str;
+  if (num > 0) return `+${num.toFixed(2)}`;
+  if (num === 0) return "0.00";
+  return num.toFixed(2);
+}
+
+/**
+ * Downloads a clean Excel template for bulk prescription import
+ */
+export function downloadPrescriptionTemplate() {
+  const wb = XLSX.utils.book_new();
+
+  const headers = [
+    "Tanggal Periksa (YYYY-MM-DD) *",
+    "Nama Pasien *",
+    "No HP / WhatsApp *",
+    "Usia",
+    "Jenis Kelamin (Laki-laki/Perempuan)",
+    "Pemeriksa (RO)",
+    "OD Spheris",
+    "OD Cylinder",
+    "OD Axis",
+    "OD Addition",
+    "OD MPD",
+    "OD BCVA",
+    "OS Spheris",
+    "OS Cylinder",
+    "OS Axis",
+    "OS Addition",
+    "OS MPD",
+    "OS BCVA",
+    "Total PD",
+    "Keluhan / Diagnosa",
+    "Catatan Klinis",
+  ];
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const sampleRows = [
+    [
+      todayStr,
+      "Ahmad Fauzi",
+      "081234567890",
+      32,
+      "Laki-laki",
+      "RO Bambang",
+      "-1.50",
+      "-0.50",
+      90,
+      "+1.25",
+      31.0,
+      "6/6",
+      "-2.00",
+      "0.00",
+      0,
+      "+1.25",
+      31.0,
+      "6/6",
+      62.0,
+      "Mata cepat lelah saat bekerja di depan laptop",
+      "Disarankan lensa Bluechromic anti-radiasi",
+    ],
+    [
+      todayStr,
+      "Siti Nurhaliza",
+      "085712345678",
+      48,
+      "Perempuan",
+      "RO Siti Rahma",
+      "+1.00",
+      "-0.75",
+      180,
+      "+2.00",
+      30.5,
+      "6/6",
+      "+0.75",
+      "-0.50",
+      175,
+      "+2.00",
+      30.5,
+      "6/6",
+      61.0,
+      "Kesulitan membaca huruf kecil pada jarak dekat",
+      "Disarankan kacamata baca progressive",
+    ],
+    [
+      todayStr,
+      "Kevin Sanjaya",
+      "087811223344",
+      24,
+      "Laki-laki",
+      "RO Bambang",
+      "-3.25",
+      "-1.00",
+      15,
+      "0.00",
+      32.0,
+      "6/6",
+      "-3.00",
+      "-0.75",
+      165,
+      "0.00",
+      32.0,
+      "6/6",
+      64.0,
+      "Silau saat berkendara malam hari dan pandangan kabur",
+      "Kontrol berkala setiap 1 tahun",
+    ],
+  ];
+
+  const wsData = [headers, ...sampleRows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  ws["!cols"] = [
+    { wch: 28 }, // Tanggal Periksa
+    { wch: 26 }, // Nama Pasien
+    { wch: 18 }, // No HP
+    { wch: 10 }, // Usia
+    { wch: 25 }, // Jenis Kelamin
+    { wch: 20 }, // Pemeriksa
+    { wch: 14 }, // OD Spheris
+    { wch: 14 }, // OD Cylinder
+    { wch: 12 }, // OD Axis
+    { wch: 14 }, // OD Addition
+    { wch: 12 }, // OD MPD
+    { wch: 12 }, // OD BCVA
+    { wch: 14 }, // OS Spheris
+    { wch: 14 }, // OS Cylinder
+    { wch: 12 }, // OS Axis
+    { wch: 14 }, // OS Addition
+    { wch: 12 }, // OS MPD
+    { wch: 12 }, // OS BCVA
+    { wch: 14 }, // Total PD
+    { wch: 38 }, // Keluhan / Diagnosa
+    { wch: 38 }, // Catatan Klinis
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, "Template Rekam Medis");
+  XLSX.writeFile(wb, "Template_Import_Rekam_Medis_Optik_Raja.xlsx");
+}
+
+/**
+ * Parses an uploaded prescription Excel/CSV file and normalizes columns
+ */
+export async function parsePrescriptionsExcel(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const buffer = new Uint8Array(e.target.result);
+        const wb = XLSX.read(buffer, { type: "array", cellDates: true });
+        const firstSheetName = wb.SheetNames[0];
+        const ws = wb.Sheets[firstSheetName];
+        const rawRows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+        const valid = [];
+        const invalid = [];
+
+        rawRows.forEach((row, index) => {
+          const rowNum = index + 2;
+
+          // Nama Pasien
+          const customer_name = String(
+            row["Nama Pasien *"] ||
+              row["Nama Pasien"] ||
+              row["Nama Lengkap *"] ||
+              row["Nama Lengkap"] ||
+              row["Nama"] ||
+              row["customer_name"] ||
+              row["name"] ||
+              ""
+          ).trim();
+
+          // No HP
+          const customer_phone = String(
+            row["No HP / WhatsApp *"] ||
+              row["No HP / WhatsApp"] ||
+              row["No HP/WhatsApp *"] ||
+              row["No HP/WhatsApp"] ||
+              row["No HP *"] ||
+              row["No HP"] ||
+              row["Nomor HP"] ||
+              row["Telepon"] ||
+              row["phone"] ||
+              row["customer_phone"] ||
+              ""
+          ).trim();
+
+          // Tanggal Periksa
+          const exam_date_val =
+            row["Tanggal Periksa (YYYY-MM-DD) *"] ||
+            row["Tanggal Periksa *"] ||
+            row["Tanggal Periksa"] ||
+            row["Tgl Periksa"] ||
+            row["Tanggal"] ||
+            row["exam_date"] ||
+            "";
+
+          let exam_date = "";
+          if (exam_date_val instanceof Date && !isNaN(exam_date_val.getTime())) {
+            exam_date = exam_date_val.toISOString().slice(0, 10);
+          } else if (typeof exam_date_val === "number") {
+            const parsedD = new Date(Math.round((exam_date_val - 25569) * 86400 * 1000));
+            exam_date = isNaN(parsedD.getTime()) ? "" : parsedD.toISOString().slice(0, 10);
+          } else {
+            const strDate = String(exam_date_val).trim();
+            if (/^\d{4}-\d{2}-\d{2}/.test(strDate)) {
+              exam_date = strDate.slice(0, 10);
+            } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(strDate)) {
+              const [d, m, y] = strDate.split("/");
+              exam_date = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+            } else if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(strDate)) {
+              const [d, m, y] = strDate.split("-");
+              exam_date = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+            } else if (!strDate || strDate === "-") {
+              exam_date = new Date().toISOString().slice(0, 10);
+            } else {
+              exam_date = strDate;
+            }
+          }
+
+          // Usia & Gender
+          const ageNum = parseInt(row["Usia"] || row["Umur"] || row["age"] || "");
+          const customer_age = isNaN(ageNum) || ageNum <= 0 ? null : ageNum;
+
+          const rawGender = String(
+            row["Jenis Kelamin (Laki-laki/Perempuan)"] ||
+              row["Jenis Kelamin"] ||
+              row["Gender"] ||
+              row["gender"] ||
+              "Laki-laki"
+          ).trim().toLowerCase();
+          const customer_gender =
+            rawGender.startsWith("p") || rawGender.includes("wanita") || rawGender.includes("perempuan")
+              ? "Perempuan"
+              : "Laki-laki";
+
+          // Pemeriksa
+          const examiner_name = String(
+            row["Pemeriksa (RO)"] ||
+              row["Pemeriksa"] ||
+              row["RO"] ||
+              row["examiner_name"] ||
+              "RO Optik Raja"
+          ).trim();
+
+          // OD
+          const od_sph = cleanDiopter(row["OD Spheris"] || row["OD Sph"] || row["od_sph"]);
+          const od_cyl = cleanDiopter(row["OD Cylinder"] || row["OD Cyl"] || row["od_cyl"]);
+          const od_axis_num = parseInt(
+            String(row["OD Axis"] || row["od_axis"] || "0").replace(/[^0-9]/g, "")
+          );
+          const od_axis = isNaN(od_axis_num) ? 0 : od_axis_num;
+          const od_add = cleanDiopter(row["OD Addition"] || row["OD Add"] || row["od_add"]);
+          const od_mpd_num = parseFloat(
+            String(row["OD MPD"] || row["od_mpd"] || "31").replace(",", ".")
+          );
+          const od_mpd = isNaN(od_mpd_num) ? 31.0 : od_mpd_num;
+          const od_bcva = String(row["OD BCVA"] || row["od_bcva"] || "6/6").trim() || "6/6";
+          const od_ucva = String(row["OD UCVA"] || row["od_ucva"] || "6/18").trim() || "6/18";
+
+          // OS
+          const os_sph = cleanDiopter(row["OS Spheris"] || row["OS Sph"] || row["os_sph"]);
+          const os_cyl = cleanDiopter(row["OS Cylinder"] || row["OS Cyl"] || row["os_cyl"]);
+          const os_axis_num = parseInt(
+            String(row["OS Axis"] || row["os_axis"] || "0").replace(/[^0-9]/g, "")
+          );
+          const os_axis = isNaN(os_axis_num) ? 0 : os_axis_num;
+          const os_add = cleanDiopter(row["OS Addition"] || row["OS Add"] || row["os_add"]);
+          const os_mpd_num = parseFloat(
+            String(row["OS MPD"] || row["os_mpd"] || "31").replace(",", ".")
+          );
+          const os_mpd = isNaN(os_mpd_num) ? 31.0 : os_mpd_num;
+          const os_bcva = String(row["OS BCVA"] || row["os_bcva"] || "6/6").trim() || "6/6";
+          const os_ucva = String(row["OS UCVA"] || row["os_ucva"] || "6/24").trim() || "6/24";
+
+          // Total PD
+          const total_pd_input = parseFloat(
+            String(row["Total PD"] || row["total_pd"] || "").replace(",", ".")
+          );
+          const total_pd =
+            !isNaN(total_pd_input) && total_pd_input > 0
+              ? total_pd_input
+              : Number((od_mpd + os_mpd).toFixed(1));
+
+          // Keluhan & Catatan
+          const complaint_diagnose = String(
+            row["Keluhan / Diagnosa"] ||
+              row["Keluhan"] ||
+              row["Diagnosa"] ||
+              row["complaint_diagnose"] ||
+              ""
+          ).trim();
+          const notes = String(
+            row["Catatan Klinis"] ||
+              row["Catatan"] ||
+              row["Keterangan"] ||
+              row["notes"] ||
+              ""
+          ).trim();
+
+          const rxObj = {
+            rowNum,
+            customer_name,
+            customer_phone,
+            customer_age,
+            customer_gender,
+            exam_date,
+            examiner_name,
+            od_sph,
+            od_cyl,
+            od_axis,
+            od_add,
+            od_mpd,
+            od_bcva,
+            od_ucva,
+            os_sph,
+            os_cyl,
+            os_axis,
+            os_add,
+            os_mpd,
+            os_bcva,
+            os_ucva,
+            total_pd,
+            complaint_diagnose,
+            notes,
+          };
+
+          if (!customer_name) {
+            invalid.push({ ...rxObj, error: "Nama pasien wajib diisi" });
+          } else {
+            valid.push(rxObj);
+          }
+        });
+
+        resolve({
+          valid,
+          invalid,
+          totalCount: rawRows.length,
+        });
+      } catch (err) {
+        reject(new Error("Gagal membaca file Excel/CSV: " + err.message));
+      }
+    };
+    reader.onerror = () => reject(new Error("Gagal membaca file"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 // ==========================================
 // 4. TRANSACTION BULK EXPORT UTILITIES
 // ==========================================

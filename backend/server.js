@@ -1292,6 +1292,194 @@ app.get('/api/prescriptions/:id', async (req, res) => {
   }
 });
 
+app.post('/api/prescriptions/bulk-import', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { prescriptions = [], autoCreateCustomer = true } = req.body;
+    if (!Array.isArray(prescriptions) || prescriptions.length === 0) {
+      return res.status(400).json({ success: false, message: 'Daftar data rekam medis tidak boleh kosong' });
+    }
+
+    let imported = 0;
+    let customersCreated = 0;
+    let skipped = 0;
+    const errors = [];
+
+    await connection.beginTransaction();
+
+    const [lastCust] = await connection.query('SELECT id FROM customers ORDER BY id DESC LIMIT 1');
+    let nextCustId = (lastCust[0]?.id || 0) + 1;
+
+    for (let i = 0; i < prescriptions.length; i++) {
+      const rx = prescriptions[i];
+      const rowNum = rx.rowNum || (i + 1);
+      const customerName = (rx.customer_name || rx.name || '').trim();
+      const customerPhone = (rx.customer_phone || rx.phone || '').trim();
+
+      if (!customerName) {
+        errors.push(`Baris ${rowNum}: Nama Pasien wajib diisi`);
+        skipped++;
+        continue;
+      }
+
+      // Match customer
+      let customerId = rx.customer_id || null;
+      if (!customerId && customerPhone && customerPhone !== '-' && customerPhone !== '0') {
+        const [foundByPhone] = await connection.query(
+          'SELECT id FROM customers WHERE phone = ? LIMIT 1',
+          [customerPhone]
+        );
+        if (foundByPhone.length > 0) {
+          customerId = foundByPhone[0].id;
+        }
+      }
+
+      if (!customerId && customerName) {
+        const [foundByName] = await connection.query(
+          'SELECT id FROM customers WHERE LOWER(name) = LOWER(?) LIMIT 1',
+          [customerName]
+        );
+        if (foundByName.length > 0) {
+          customerId = foundByName[0].id;
+        }
+      }
+
+      if (!customerId) {
+        if (autoCreateCustomer) {
+          const customerCode = `CUST-${String(nextCustId).padStart(4, '0')}`;
+          nextCustId++;
+          const gender = (rx.customer_gender || rx.gender || 'Laki-laki').trim();
+          const age = rx.customer_age || rx.age ? parseInt(rx.customer_age || rx.age) || null : null;
+          const address = (rx.customer_address || rx.address || '').trim();
+
+          const [insertCust] = await connection.query(
+            `INSERT INTO customers (code, name, phone, gender, age, address, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              customerCode,
+              customerName,
+              customerPhone || '-',
+              gender.toLowerCase().startsWith('p') ? 'Perempuan' : 'Laki-laki',
+              age,
+              address,
+              'Dibuat otomatis dari import rekam medis'
+            ]
+          );
+          customerId = insertCust.insertId;
+          customersCreated++;
+        } else {
+          errors.push(`Baris ${rowNum}: Pasien "${customerName}" belum terdaftar`);
+          skipped++;
+          continue;
+        }
+      }
+
+      // Format examination date
+      let examDate = rx.exam_date || '';
+      if (!examDate || examDate === '-') {
+        examDate = new Date().toISOString().slice(0, 10);
+      } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(examDate)) {
+        const parts = examDate.split('/');
+        examDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      } else if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(examDate)) {
+        const parts = examDate.split('-');
+        examDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      } else if (/^\d{4}-\d{2}-\d{2}/.test(examDate)) {
+        examDate = examDate.slice(0, 10);
+      }
+
+      const examinerName = (rx.examiner_name || 'RO Optik Raja').trim();
+      let examinerId = null;
+      if (examinerName) {
+        const [emp] = await connection.query('SELECT id FROM employees WHERE name LIKE ? LIMIT 1', [`%${examinerName}%`]);
+        if (emp.length > 0) examinerId = emp[0].id;
+      }
+
+      const odSph = rx.od_sph !== undefined && rx.od_sph !== null && rx.od_sph !== '' ? String(rx.od_sph).trim() : '0.00';
+      const odCyl = rx.od_cyl !== undefined && rx.od_cyl !== null && rx.od_cyl !== '' ? String(rx.od_cyl).trim() : '0.00';
+      const odAxis = parseInt(rx.od_axis) || 0;
+      const odAdd = rx.od_add !== undefined && rx.od_add !== null && rx.od_add !== '' ? String(rx.od_add).trim() : '0.00';
+      const odMpd = parseFloat(rx.od_mpd) || 31.0;
+      const odBcva = (rx.od_bcva || '6/6').trim();
+      const odUcva = (rx.od_ucva || '6/18').trim();
+      const odPv = (rx.od_pv || '10°').trim();
+      const odSh = (rx.od_sh || '18 mm').trim();
+
+      const osSph = rx.os_sph !== undefined && rx.os_sph !== null && rx.os_sph !== '' ? String(rx.os_sph).trim() : '0.00';
+      const osCyl = rx.os_cyl !== undefined && rx.os_cyl !== null && rx.os_cyl !== '' ? String(rx.os_cyl).trim() : '0.00';
+      const osAxis = parseInt(rx.os_axis) || 0;
+      const osAdd = rx.os_add !== undefined && rx.os_add !== null && rx.os_add !== '' ? String(rx.os_add).trim() : '0.00';
+      const osMpd = parseFloat(rx.os_mpd) || 31.0;
+      const osBcva = (rx.os_bcva || '6/6').trim();
+      const osUcva = (rx.os_ucva || '6/24').trim();
+      const osPv = (rx.os_pv || '10°').trim();
+      const osSh = (rx.os_sh || '18 mm').trim();
+
+      let totalPd = rx.total_pd ? parseFloat(rx.total_pd) : null;
+      if (!totalPd || isNaN(totalPd)) {
+        totalPd = Number((odMpd + osMpd).toFixed(1));
+      }
+
+      const complaintDiagnose = (rx.complaint_diagnose || rx.complaint || '').trim();
+      const notes = (rx.notes || '').trim();
+
+      const [insertRx] = await connection.query(
+        `INSERT INTO prescriptions (
+          customer_id, examiner_id, examiner_name, exam_date,
+          od_ucva, od_sph, od_cyl, od_axis, od_bcva, od_add, od_mpd, od_pv, od_sh,
+          os_ucva, os_sph, os_cyl, os_axis, os_bcva, os_add, os_mpd, os_pv, os_sh,
+          total_pd, complaint_diagnose, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          customerId, examinerId, examinerName, examDate,
+          odUcva, odSph, odCyl, odAxis, odBcva, odAdd, odMpd, odPv, odSh,
+          osUcva, osSph, osCyl, osAxis, osBcva, osAdd, osMpd, osPv, osSh,
+          totalPd, complaintDiagnose, notes
+        ]
+      );
+
+      const newRxId = insertRx.insertId;
+
+      try {
+        await connection.query(
+          'UPDATE transactions SET prescription_id = ? WHERE customer_id = ? AND prescription_id IS NULL',
+          [newRxId, customerId]
+        );
+        await connection.query(
+          `UPDATE lab_orders lo
+           JOIN transactions t ON lo.transaction_id = t.id
+           SET lo.prescription_id = ?
+           WHERE t.customer_id = ? AND (lo.prescription_id IS NULL OR lo.prescription_id = 0)`,
+          [newRxId, customerId]
+        );
+      } catch (linkErr) {
+        // Continue
+      }
+
+      imported++;
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Proses import rekam medis selesai: ${imported} rekam medis berhasil ditambahkan (${customersCreated} pasien baru didaftarkan otomatis).`,
+      summary: {
+        total: prescriptions.length,
+        imported,
+        customersCreated,
+        skipped,
+        errors
+      }
+    });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
 app.post('/api/prescriptions', async (req, res) => {
   try {
     const {

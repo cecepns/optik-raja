@@ -26,6 +26,7 @@ import Pagination from "@/components/common/Pagination";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PrescriptionPrintModal from "@/components/print/PrescriptionPrintModal";
+import PrescriptionImportModal from "@/components/common/PrescriptionImportModal";
 import { exportPrescriptionsToExcel } from "@/utils/bulkDataHandler";
 import { sendWhatsAppMessage, buildPrescriptionWhatsAppMessage } from "@/utils/whatsapp";
 
@@ -666,48 +667,13 @@ export default function PrescriptionsPage() {
       />
 
       {/* ==========================================
-          IMPORT REKAM MEDIS MODAL
+          IMPORT REKAM MEDIS MODAL (EXCEL / CSV)
          ========================================== */}
-      <Modal
+      <PrescriptionImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        title="Import Rekam Medis Pasien"
-        subtitle="Format impor data riwayat pemeriksaan refraksi optik"
-        maxWidth="max-w-md"
-        footer={
-          <button
-            type="button"
-            onClick={() => setIsImportModalOpen(false)}
-            className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer"
-          >
-            Tutup
-          </button>
-        }
-      >
-        <div className="space-y-3.5 text-xs text-gray-600">
-          <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 text-blue-900 leading-relaxed">
-            <p className="font-bold">Format Kolom Spreadsheet:</p>
-            <p className="text-[11px] mt-0.5">
-              Nama Pasien, Tanggal Periksa, No HP, OD Sph, OD Cyl, OD Axis, OD Add, OS Sph, OS Cyl, OS Axis, OS Add, Total PD.
-            </p>
-          </div>
-
-          <p className="text-gray-500 leading-normal">
-            Untuk mengimpor data dalam jumlah banyak, silakan gunakan file Excel hasil dari tombol <strong>Export Excel</strong> sebagai referensi struktur kolom yang baku.
-          </p>
-
-          <div className="pt-2 flex justify-end">
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Download Contoh Format (Excel)</span>
-            </button>
-          </div>
-        </div>
-      </Modal>
+        onSuccess={fetchPrescriptions}
+      />
 
       {/* ==========================================
           CREATE / EDIT REKAM MEDIS MODAL (LENGKAP OD & OS)
